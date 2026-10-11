@@ -1,7 +1,7 @@
 # data and results (large, regenerated)
 data/
 experiments/
-models/
+/models/
 plots/
 outputs/
 *.pkl
