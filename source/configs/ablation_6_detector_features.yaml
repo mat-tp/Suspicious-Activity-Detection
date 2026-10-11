@@ -1,0 +1,18 @@
+# Ablation 6 - adaptive MOG2 + full (multi-family) feature set, standard preprocessing.
+# Completes the 2x2x2 factorial design (detector x preprocessing x features).
+extends: ablation_1_detector_only.yaml
+
+experiment:
+  name: ablation_6_detector_features
+  description: Group A with adaptive MOG2 AND the Group I feature set (preprocessing unchanged).
+  group: ABL6
+
+features:
+  modules:
+    - trajectory
+    - circular_motion
+    - kinematics
+    - shape
+    - wavelet
+    - interaction
+  enable_multifamily: true

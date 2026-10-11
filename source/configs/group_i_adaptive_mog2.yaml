@@ -1,0 +1,57 @@
+extends: base.yaml
+
+experiment:
+  name: group_i_adaptive_mog2
+  description: >
+    Confidence-driven adaptive MOG2 detector (Group I — revised).
+    Runs MOG2 at normal var_threshold first, scores the resulting mask
+    on coverage/fragmentation/blob-size, then re-runs at a smoothly
+    interpolated relaxed threshold only when the mask quality is poor.
+    Compared against Group A (fixed MOG2) to isolate the benefit of
+    feedback-driven adaptation over blind threshold relaxation.
+  group: I
+
+preprocessing:
+  type: distortion_aware
+  # distortion_aware_params inherited from base.yaml
+
+detection:
+  type: adaptive_mog2
+  # mog2.* (history, var_threshold, detect_shadows) inherited from base.yaml so
+  # every group and ablation shares one value. var_threshold is the CEILING of
+  # the adaptive range [tau_min, var_threshold].
+  adaptive_mog2:
+    relaxed_var_threshold: 10.0   # tau_r: threshold under full relaxation
+    quality_threshold: 0.4        # q: below this combined score, adapt
+    mask_weight: 0.7              # w: weight of mask quality vs track quality
+    threshold_floor: 8.0          # tau_min: never go below this threshold
+    update_once: true             # false = old behaviour (second model update)
+  morphology:
+    close_iter: 2
+    open_iter: 1
+  min_contour_area: 500
+
+tracking:
+  type: iou_hungarian
+  iou_hungarian:
+    iou_threshold: 0.3
+  # max_disappeared, max/min_trajectory_len inherited from base
+
+features:
+  modules:
+    - trajectory
+    - circular_motion
+    - kinematics
+    - shape
+    - wavelet
+    - interaction
+  # Adds appearance, optical-flow, image-quality and metadata features.
+  # This used to switch on implicitly when the group was "I".
+  enable_multifamily: true
+
+# The model list is inherited from base.yaml, so Group I runs the same
+# classifiers (RF, SVM, KNN, LightGBM, XGBoost, MLP, ...) as Group A.
+
+targets:
+  - activity
+  - distortion

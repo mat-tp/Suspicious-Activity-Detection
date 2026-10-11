@@ -1,0 +1,13 @@
+# Ablation 4 - full proposed pipeline, but with FIXED MOG2.
+# Same as group_i_adaptive_mog2 in every respect except the detector.
+# Compare with group_i_adaptive_mog2 to measure what adaptive MOG2 adds when
+# preprocessing and features are held constant.
+extends: group_i_adaptive_mog2.yaml
+
+experiment:
+  name: ablation_4_full_pipeline_fixed_mog2
+  description: Group I with plain MOG2 as the only change.
+  group: ABL4
+
+detection:
+  type: mog2

@@ -1,0 +1,19 @@
+# Detector comparison - vibe.
+# Identical to Group A (standard preprocessing, trajectory features only, same
+# tracker, same mask cleaning). The ONLY change is the background model.
+# Compare with group_a_classical (fixed MOG2) and ablation_1_detector_only
+# (adaptive MOG2).
+extends: group_a_classical.yaml
+
+experiment:
+  name: detector_vibe
+  description: Group A with vibe as the only change.
+  group: DET-vibe
+
+detection:
+  type: vibe
+  vibe:
+    n_samples: 20     # samples stored per pixel
+    radius: 20        # intensity distance for a sample to match
+    min_matches: 2    # matches needed to call a pixel background
+    subsampling: 16   # a background pixel updates the model with probability 1/16

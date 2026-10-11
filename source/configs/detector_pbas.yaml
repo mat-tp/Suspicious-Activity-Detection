@@ -1,0 +1,15 @@
+# Detector comparison - pbas.
+# Identical to Group A (standard preprocessing, trajectory features only, same
+# tracker, same mask cleaning). The ONLY change is the background model.
+# Compare with group_a_classical (fixed MOG2) and ablation_1_detector_only
+# (adaptive MOG2).
+extends: group_a_classical.yaml
+
+experiment:
+  name: detector_pbas
+  description: Group A with pbas as the only change.
+  group: DET-pbas
+
+detection:
+  type: pbas
+  pbas: {}            # paper defaults (see detection/pbas.py)

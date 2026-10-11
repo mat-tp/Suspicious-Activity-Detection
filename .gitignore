@@ -1,0 +1,28 @@
+# data and results (large, regenerated)
+data/
+experiments/
+models/
+plots/
+outputs/
+*.pkl
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# LaTeX build files
+*.aux
+*.log
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+docs/paper.pdf
+
+# personal / not for a public repo while the paper is under review
+ss/
+docs/project_report.pdf

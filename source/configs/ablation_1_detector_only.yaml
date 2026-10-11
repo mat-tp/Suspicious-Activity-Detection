@@ -1,0 +1,19 @@
+# Ablation 1 - detector only.
+# Identical to Group A (standard preprocessing, trajectory features only,
+# no multi-family features). The ONLY change is fixed MOG2 -> adaptive MOG2.
+# Compare with group_a_classical to measure what the detector alone adds.
+extends: group_a_classical.yaml
+
+experiment:
+  name: ablation_1_detector_only
+  description: Group A with adaptive MOG2 as the only change.
+  group: ABL1
+
+detection:
+  type: adaptive_mog2
+  adaptive_mog2:
+    relaxed_var_threshold: 10.0
+    quality_threshold: 0.4
+    mask_weight: 0.7
+    threshold_floor: 8.0
+    update_once: true

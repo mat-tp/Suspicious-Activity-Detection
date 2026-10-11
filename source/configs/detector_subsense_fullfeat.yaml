@@ -1,0 +1,15 @@
+# Detector comparison on the FULL pipeline features - subsense.
+# Same as group_i_adaptive_mog2 (distortion-aware preprocessing, 221-dim features,
+# same tracker) except the background model. Compare with group_i_adaptive_mog2
+# (adaptive MOG2) and ablation_4_full_pipeline_fixed_mog2 (fixed MOG2).
+# Answers SACAIR Reviewer 1: is the gain generic adaptivity or specific to this method?
+extends: group_i_adaptive_mog2.yaml
+
+experiment:
+  name: detector_subsense_fullfeat
+  description: Group I with subsense as the only change.
+  group: DET-subsense-full
+
+detection:
+  type: subsense
+  subsense: {}        # needs pybgs

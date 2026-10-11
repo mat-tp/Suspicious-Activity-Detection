@@ -1,0 +1,11 @@
+# Ablation 2 - preprocessing only.
+# Group A with distortion-aware preprocessing as the only change.
+extends: group_a_classical.yaml
+
+experiment:
+  name: ablation_2_preprocessing_only
+  description: Group A with distortion-aware preprocessing as the only change.
+  group: ABL2
+
+preprocessing:
+  type: distortion_aware

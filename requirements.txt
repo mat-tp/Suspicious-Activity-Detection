@@ -1,0 +1,23 @@
+# Core
+numpy
+pandas
+opencv-python
+PyYAML
+scipy
+scikit-learn
+openpyxl          # reads datasetInfo.xlsx
+joblib
+imbalanced-learn  # SMOTE and other resampling methods
+
+# Optional - the code switches the matching features off if these are missing
+lightgbm          # LightGBM classifier
+xgboost           # XGBoost classifier
+PyWavelets        # wavelet features
+matplotlib        # plots
+seaborn
+torch             # neural baselines (config group_c / group_d)
+fiftyone          # video visualisation (--visualise)
+pybgs             # SuBSENSE detector only; compiles C++ and may not install on every system
+
+# Tests
+pytest

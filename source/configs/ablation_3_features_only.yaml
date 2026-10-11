@@ -1,0 +1,19 @@
+# Ablation 3 - features only.
+# Group A (fixed MOG2, standard preprocessing) with the full feature set of
+# Group I: six trajectory modules plus appearance/flow/quality/metadata.
+extends: group_a_classical.yaml
+
+experiment:
+  name: ablation_3_features_only
+  description: Group A with the Group I feature set as the only change.
+  group: ABL3
+
+features:
+  modules:
+    - trajectory
+    - circular_motion
+    - kinematics
+    - shape
+    - wavelet
+    - interaction
+  enable_multifamily: true

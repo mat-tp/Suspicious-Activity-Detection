@@ -1,0 +1,12 @@
+# Ablation 5 - adaptive MOG2 + distortion-aware preprocessing, trajectory features only.
+# Completes the 2x2x2 factorial design (detector x preprocessing x features) that
+# answers SACAIR Reviewer 3: no factor is changed together with another.
+extends: ablation_1_detector_only.yaml
+
+experiment:
+  name: ablation_5_detector_preprocessing
+  description: Group A with adaptive MOG2 AND distortion-aware preprocessing (features unchanged).
+  group: ABL5
+
+preprocessing:
+  type: distortion_aware
