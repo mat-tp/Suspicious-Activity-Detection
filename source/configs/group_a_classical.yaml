@@ -1,7 +1,7 @@
 extends: base.yaml
 
 experiment:
-  name: group_a_classical_baseline
+  name: group_a_classical
   description: >
     Classical CV pipeline: MOG2 detection + IoU+Hungarian tracking +
     trajectory features only + all classical/boosting models.

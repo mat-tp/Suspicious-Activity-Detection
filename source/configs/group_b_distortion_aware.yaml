@@ -4,7 +4,7 @@ experiment:
   name: group_b_distortion_aware_classical
   description: >
     Distortion-aware preprocessing + full handcrafted feature set.
-    PRIMARY contribution group — compares against Group A (standard preprocessing)
+    Compares against Group A (standard preprocessing)
     to isolate the benefit of distortion-aware enhancement.
   group: B
 
@@ -21,7 +21,7 @@ features:
     - wavelet
     - interaction
 
-# RF + LGB are the primary models for this group (per paper design).
+# Random Forest and LightGBM only, for this group.
 # xgboost added for completeness of the leaderboard comparison.
 models:
   active:

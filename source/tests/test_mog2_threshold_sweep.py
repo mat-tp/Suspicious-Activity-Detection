@@ -10,7 +10,7 @@ sys.path.insert(0, str(SCRIPTS))
 spec = importlib.util.spec_from_file_location("mog2_threshold_sweep", SCRIPTS / "mog2_threshold_sweep.py")
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
-mod.yield_by_distortion = sys.modules["sensitivity_sweep"].yield_by_distortion
+mod.yield_by_distortion = sys.modules["sweep_common"].yield_by_distortion
 
 
 class FakeRunner:

@@ -12,4 +12,4 @@ experiment:
 
 detection:
   type: pbas
-  pbas: {}            # paper defaults (see detection/pbas.py)
+  pbas: {}            # defaults of the original publication (see detection/pbas.py)

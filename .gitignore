@@ -22,7 +22,14 @@ __pycache__/
 *.bbl
 *.blg
 docs/paper.pdf
-
+REVIEWER_NOTES.txt
 # personal / not for a public repo while the paper is under review
 ss/
 docs/project_report.pdf
+docs/feature_appndix.tex
+docs/paper.tex
+docs/project_report.pdf
+
+# Virtual environment and smoke-test results created by build.sh
+sdr-env/
+experiments_smoke/

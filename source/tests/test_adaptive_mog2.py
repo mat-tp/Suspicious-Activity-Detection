@@ -95,3 +95,37 @@ def test_each_ablation_changes_exactly_one_factor():
     assert changed("group_a_classical", "ablation_2_preprocessing_only") == ["preprocessing"]
     assert changed("group_a_classical", "ablation_3_features_only") == ["features", "multifamily"]
     assert changed("group_i_adaptive_mog2", "ablation_4_full_pipeline_fixed_mog2") == ["detector"]
+
+
+def _background_after(detector, frames):
+    for frame in frames:
+        detector.detect(frame)
+    return detector.mog2.getBackgroundImage()
+
+
+def _background_gap(detector, reference_background, frames):
+    """(largest grey-level difference, share of differing pixels) against a reference."""
+    background = _background_after(detector, frames)
+    difference = np.abs(reference_background.astype(int) - background.astype(int))
+    return int(difference.max()), float((difference > 0).mean())
+
+
+def test_adaptive_retry_never_advances_the_background_model_twice():
+    """quality_threshold above 1 forces a relaxed retry on every frame after warm-up.
+
+    With update_once=True the retry runs at learning rate 0, so the learned background
+    stays equal to plain MOG2's. It is not bit-identical: OpenCV may re-order mixture
+    components during the rate-0 call, which moves a handful of pixels by one grey
+    level. The old double-update behaviour changes a large share of the image.
+    """
+    frames = make_frames()
+    plain_background = _background_after(MOG2Detector(**SETTINGS), frames)
+
+    always_retry = AdaptiveMOG2Detector(quality_threshold=1.5, update_once=True, **SETTINGS)
+    largest_gap, share_differing = _background_gap(always_retry, plain_background, frames)
+    assert always_retry.get_diagnostics()["adaptive_trigger_rate"] > 0.5   # retries did happen
+    assert largest_gap <= 1 and share_differing < 1e-3
+
+    double_update = AdaptiveMOG2Detector(quality_threshold=1.5, update_once=False, **SETTINGS)
+    _, share_double = _background_gap(double_update, plain_background, frames)
+    assert share_double > 0.05

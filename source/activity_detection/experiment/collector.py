@@ -54,6 +54,9 @@ def _process_one_video(task: Dict[str, Any]) -> Dict[str, Any]:
         extractors, aggregator, task["min_trajectory_len"],
         use_dense_trajectories=task["use_dense"],
         enable_multifamily=task["enable_mf"],
+        filter_short_tracks=task.get("filter_short", False),
+        global_flow_step=task.get("global_flow_step", 5),
+        appearance_frame_count=task.get("appearance_frame_count", 30),
     )
     result = runner.process_video(
         Path(task["vpath"]),
@@ -86,6 +89,7 @@ def _empty_dist_stats() -> Dict[str, Any]:
         "failure_feature": 0, "failure_track_too_short": 0,
         "failure_unknown": 0,
         "n_tracks_total": 0, "n_frames_total": 0,
+        "with_trajectory": 0,      # videos that kept at least one track (true trajectory yield)
         "track_lengths": [],
     }
 
@@ -156,6 +160,9 @@ class VideoFeatureCollector:
         self.min_trajectory_len = config.tracking.min_trajectory_len
         self.use_dense = config.features.get("dense_trajectories", {}).get("enabled", False)
         self.enable_mf = config.features.get("enable_multifamily", False)
+        self.filter_short = bool(config.tracking.get("filter_short_tracks", False))
+        self.global_flow_step = int(config.features.get("global_flow_step", 5))
+        self.appearance_frame_count = int(config.features.get("appearance_frame_count", 30))
 
     # ── Public entry point ────────────────────────────────────────────────────
 
@@ -245,6 +252,9 @@ class VideoFeatureCollector:
             self.min_trajectory_len,
             use_dense_trajectories=self.use_dense,
             enable_multifamily=self.enable_mf,
+            filter_short_tracks=self.filter_short,
+            global_flow_step=self.global_flow_step,
+            appearance_frame_count=self.appearance_frame_count,
         )
         for task in tasks:
             vis_path = Path(task["vis_path"]) if task["vis_path"] else None
@@ -269,7 +279,10 @@ class VideoFeatureCollector:
              "frame_sampling": frame_sampling,
              "min_trajectory_len": self.min_trajectory_len,
              "use_dense": self.use_dense,
-             "enable_mf": self.enable_mf}
+             "enable_mf": self.enable_mf,
+             "filter_short": self.filter_short,
+             "global_flow_step": self.global_flow_step,
+             "appearance_frame_count": self.appearance_frame_count}
             for task in tasks
         ]
         with ProcessPoolExecutor(max_workers=n_workers,
@@ -318,6 +331,8 @@ class VideoFeatureCollector:
             return
 
         stats["successful"] += 1
+        has_traj = bool(result.track_lengths)
+        stats["with_trajectory"] += int(has_traj)
         if vis_path is not None:
             self._record_visualisation(task, result, acc)
 
@@ -325,6 +340,7 @@ class VideoFeatureCollector:
         fv.update({
             "activity": activity, "distortion": distortion, "video_name": vname,
             "n_tracks": len(result.tracks), "frames_used": result.n_frames_processed,
+            "has_trajectory": float(has_traj),
             "track_length": float(np.mean(result.track_lengths)) if result.track_lengths else 0.0,
             "feature_count": result.feature_count,
             "track_confidence": self._track_confidence(result.track_lengths),
@@ -448,6 +464,7 @@ class VideoFeatureCollector:
                   f"{s['failure_feature']:>10}  {s['failure_unknown']:>8}")
             summary[dkey] = {
                 "total_videos": s["total"], "successful_videos": s["successful"],
+                "videos_with_trajectory": s["with_trajectory"],
                 "failed_videos": s["failed"], "success_rate": rate,
                 "failure_detection": s["failure_detection"], "failure_tracking": s["failure_tracking"],
                 "failure_track_too_short": s["failure_track_too_short"],
@@ -456,7 +473,15 @@ class VideoFeatureCollector:
                 "mean_track_length": float(np.mean(s["track_lengths"])) if s["track_lengths"] else 0.0,
             }
         overall = n_success / total * 100 if total > 0 else 0.0
-        print(f"\n  Overall: {n_success}/{total} successful ({overall:.1f}%)\n" + "=" * 70)
+        n_traj = sum(s["with_trajectory"] for s in dist_stats.values())
+        traj_pct = n_traj / total * 100 if total > 0 else 0.0
+        print(f"\n  Overall: {n_success}/{total} produced a feature vector ({overall:.1f}%)")
+        print(f"  Trajectory yield: {n_traj}/{total} videos kept at least one track ({traj_pct:.1f}%)")
+        if self.enable_mf and n_success > n_traj:
+            print(f"  NOTE: multi-family mode keeps videos without tracks ({n_success - n_traj} here), "
+                  f"so the first number is NOT a trajectory yield. Report the second.\n" + "=" * 70)
+        else:
+            print("=" * 70)
         if self.run_dir is not None:
             with open(self.run_dir / "detector_stats.json", "w") as f:
                 json.dump(summary, f, indent=2)

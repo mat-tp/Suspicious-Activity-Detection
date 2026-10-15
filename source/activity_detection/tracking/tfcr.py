@@ -17,8 +17,8 @@ class TFCRTracker(Tracker):
     """
     TFCR-inspired tracker: target-focusing convolutional regression model.
 
-    Manuscript context
-    ------------------
+    Background
+    ----------
     Yuan et al. (2020) propose a Target-Focusing Convolutional Regression (TFCR)
     model that reformulates Discriminative Correlation Filters (DCFs) as a
     one-layer CNN and adds a *target-focusing loss*:
@@ -215,8 +215,7 @@ class TFCRTracker(Tracker):
         TFCR's objective of maximising the response of target samples while
         minimising the influence of background samples.
 
-        Manuscript note:  This surrogate targets the same statistical goal as
-        TFCR — increasing the relative gap between target and background
+        This surrogate targets the same statistical goal as TFCR: increasing the relative gap between target and background
         response maps — while remaining feasible on CPU surveillance hardware.
         """
         if track_id not in self._models:
@@ -323,7 +322,7 @@ class TFCRTracker(Tracker):
 
         Implements TFCR §3.3 — Online detection + Model update:
           the tracker locates the target from the maximum response on the
-          response map, then updates the model every frame (T=2 in the paper;
+          response map, then updates the model every frame (the original method uses T=2;
           we update every frame for the surveillance use-case because scene
           appearance changes rapidly with distortion).
         """

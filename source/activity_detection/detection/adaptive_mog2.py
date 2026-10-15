@@ -19,7 +19,7 @@ The relaxed segmentation is a second look at the same frame with learning rate
 adapted give exactly the same result as plain MOG2. Set update_once=False to
 get the older behaviour, where the second segmentation also updated the model.
 
-Parameter names follow the paper:
+Parameter symbols:
     q    quality_threshold        w    mask_weight
     tau_r  relaxed_var_threshold  tau_min  threshold_floor
 """

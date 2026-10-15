@@ -1,0 +1,11 @@
+extends: group_a_classical.yaml
+
+experiment:
+  name: ablation_0_baseline_no_meta
+  description: >
+    The trajectory-only baseline without the three file-metadata features
+    (frame count, duration, fps) that the pipeline appends to every group.
+  group: ABL0
+
+features:
+  drop_prefixes: [meta_num_, meta_duration, meta_fps]

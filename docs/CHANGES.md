@@ -1,3 +1,19 @@
+# Changes since the original submission
+
+## Audit fixes, batch build and parameter ablation (latest)
+
+* **`build.sh` / `build.bat`** create the `sdr-env` environment, check and install the libraries, record the environment (pip freeze, git commit, config checksums) and run every training and testing stage, logging each step and listing failures at the end.
+* **`parameter_ablation.py`** (replaces `sensitivity_sweep.py`): one-at-a-time ablation of every selected preprocessing, detector, adaptive-MOG2, tracker, feature, classifier and imbalance parameter.
+* **`audit_configs.py`** checks that the eight factorial cells differ only in detector, preprocessing and features; the adaptive-MOG2 parameters now live once in `base.yaml`.
+* **`verify_outputs.py`** checks that every required run exists and no classifier failed.
+* **CLI**: `--set key=value`, `--workers N`, `--features-csv`; features are cached in `video_features.csv` and collected once for `--target both`.
+* **Group-aware evaluation**: `StratifiedGroupKFold` and a group-level bootstrap when `training.group_map_csv` or `training.group_regex` is set; `audit_duplicates.py` records thresholds, unfingerprinted videos and a checksum.
+* **Accounting**: feature yield and trajectory yield are reported separately; `tracking.filter_short_tracks` enforces the minimum track length.
+* **Fixes**: skewness/kurtosis of constant-speed tracks was NaN (crashed SVM/KNN); `group_a_classical` wrote to a folder the factorial analysis did not look in.
+* `validate_mask_quality.py` reports video and frame counts and a second analysis restricted to frames with a ground-truth box.
+
+---
+
 # Refactoring Changes
 
 Five targeted improvements — each fixes one concrete problem
@@ -138,4 +154,3 @@ Everything not listed above is untouched:
 * **New `source/scripts/mog2_threshold_sweep.py`** (+ tests): var_threshold ablation for fixed and adaptive MOG2.
 * **New `source/scripts/run_review_experiments.sh`**: runs the ablations, alternative detectors, `var_threshold` sweep and
   `q/w/tau` sensitivity sweep in priority order (`--smoke` for a quick check). Not yet run on the real dataset.
-* **New `docs/review_response_plan.md`**: maps each SACAIR 2026 reviewer point to what the repo supports, plus a draft response.

@@ -187,6 +187,8 @@ class PipelineBuilder:
         the parallel worker function.  It lives here now.
         """
         min_len = cfg.tracking.min_trajectory_len
+        module_params_section = cfg.features.get("module_params")
+        module_params = module_params_section.to_dict() if module_params_section is not None else {}
         extractors: List[FeatureExtractor] = []
 
         for mod_name in cfg.features.get("modules", []):
@@ -197,6 +199,9 @@ class PipelineBuilder:
                 )
                 continue
             kwargs = {"min_trajectory_len": min_len} if mod_name in cls._MIN_LEN_MODULES else {}
+            # Optional per-module constructor arguments from features.module_params,
+            # e.g. wavelet: {level: 4} or interaction: {proximity_threshold: 150}.
+            kwargs.update(module_params.get(mod_name, {}))
             extractors.append(build("feature", mod_name, **kwargs))
 
         dt_cfg = cfg.features.get("dense_trajectories", {})

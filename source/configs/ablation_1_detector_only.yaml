@@ -11,9 +11,4 @@ experiment:
 
 detection:
   type: adaptive_mog2
-  adaptive_mog2:
-    relaxed_var_threshold: 10.0
-    quality_threshold: 0.4
-    mask_weight: 0.7
-    threshold_floor: 8.0
-    update_once: true
+  # adaptive_mog2.* parameters are inherited from base.yaml.

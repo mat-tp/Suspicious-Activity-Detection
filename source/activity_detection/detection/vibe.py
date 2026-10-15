@@ -7,7 +7,7 @@ neighbour, with probability 1/subsampling. There is no learning-rate schedule,
 so the model reacts to scene change through this random replacement only.
 
 This is a NumPy implementation of the published algorithm on grey frames, using
-the paper's default parameters (N=20, R=20, #min=2, phi=16).
+the default parameters of the original ViBe publication (N=20, R=20, #min=2, phi=16).
 """
 from __future__ import annotations
 

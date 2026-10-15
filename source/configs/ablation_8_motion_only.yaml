@@ -1,0 +1,14 @@
+extends: group_i_adaptive_mog2.yaml
+
+experiment:
+  name: ablation_8_motion_only
+  description: >
+    Group I restricted to features derived from tracked trajectories (plus the
+    track-count and temporal-context scalars). Drops image-quality (diag_), global
+    flow (flow_), appearance (app_) and file-metadata features. This is the
+    configuration that actually tests the claim that trajectory statistics alone can
+    separate imaging conditions (RQ4).
+  group: ABL8
+
+features:
+  drop_prefixes: [diag_, flow_, app_, meta_num_, meta_duration, meta_fps]

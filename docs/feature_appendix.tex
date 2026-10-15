@@ -1,0 +1,85 @@
+% Feature specification. Kept in sync with the code by source/tests/test_feature_appendix.py:
+% every descriptor name returned by the extractors must appear below as \f{name}.
+\providecommand{\f}[1]{\texttt{\detokenize{#1}}}
+
+Let a track be a sequence of centroids $p_1,\dots,p_n$ with frame indices, $\Delta p_i=p_{i+1}-p_i$,
+$v_i=\lVert\Delta p_i\rVert$ the speed in pixels per frame, $\phi=\mathrm{fps}/s$ the effective frame rate
+($s$ the frame-sampling step, 1 in all reported runs), $T=n/\phi$ the track duration in seconds, and
+$\theta_i=\operatorname{atan2}(\Delta p_{i,y},\Delta p_{i,x})$ the heading. Speeds in px/s are $v_i\phi$.
+Per-track descriptors are pooled over a video's tracks by mean, maximum and standard deviation (population
+$\sigma$; zero for one track); a descriptor that is undefined for a track (too few points, or below the minimum
+length) is simply absent for that track.
+
+\paragraph{Per-track descriptors (45).}
+\begin{center}
+\fontsize{7.5}{9}\selectfont
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{0.27\linewidth} p{0.66\linewidth}@{}}
+\toprule
+\textbf{Descriptor} & \textbf{Definition} \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Trajectory (14), $n\ge 2$}} \\
+\f{track_duration_sec} & $T$ \\
+\f{path_speed_px_s} & $\sum v_i / T$ \\
+\f{net_displacement_speed_px_s} & $\lVert p_n-p_1\rVert / T$ \\
+\f{straightness} & $\lVert p_n-p_1\rVert / \sum v_i$ \\
+\f{mean_speed_px_s}, \f{max_speed_px_s}, \f{std_speed_px_s} & mean, maximum, standard deviation of $v_i\phi$ \\
+\f{skew_speed}, \f{kurt_speed} & skewness and excess kurtosis of $v_i\phi$ ($n>3$; else 0) \\
+\f{mean_direction_deg}, \f{direction_std_deg} & mean and standard deviation of $\theta_i$ in $[0,360)$ degrees (linear, not circular statistics) \\
+\f{bbox_area} & area of the axis-aligned box around the centroids \\
+\f{mean_flow_magnitude}, \f{mean_flow_angle_deg} & video-level Lucas--Kanade flow (window $15{\times}15$, 2 pyramid levels, $\le200$ corners); the same value for every track of a video \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Circular motion (4), $n\ge 2$}} \\
+\f{circular_mean_rad}, \f{circular_variance} & circular mean of $\theta_i$ and $1-R$ \\
+\f{direction_concentration}, \f{angular_dispersion} & mean resultant length $R$; standard deviation of the wrapped angular deviations \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Kinematics (8), $n\ge 5$}} \\
+\f{mean_accel_px_s2}, \f{std_accel_px_s2}, \f{max_accel_px_s2}, \f{skew_accel} & mean, std, maximum absolute value, skewness of $a_i=\Delta v_i\,\phi$ (px/s$^2$) \\
+\f{mean_jerk_px_s3}, \f{std_jerk_px_s3}, \f{max_jerk_px_s3}, \f{skew_jerk} & same for jerk $\Delta a_i\,\phi$ (px/s$^3$) \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Shape (6), $n\ge 4$}} \\
+\f{mean_curvature}, \f{std_curvature} & mean and std of $\lvert\Delta\theta_i\rvert$ wrapped to $[0,\pi]$ \\
+\f{turning_rate_rad_s} & $\sum\lvert\Delta\theta_i\rvert / T$ \\
+\f{convex_hull_area}, \f{compactness} & area of the centroids' convex hull; $4\pi\,\text{area}/\text{perimeter}^2$ \\
+\f{path_efficiency} & $\lVert p_n-p_1\rVert/\sum v_i$ (equal to \f{straightness}; kept because the two families were designed separately) \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Wavelet (6), $n\ge 15$ (or 30 in the filtered variant)}} \\
+\f{dwt_energy_approx}, \f{dwt_energy_detail1}, \f{dwt_energy_detail2}, \f{dwt_energy_detail3} & energy $\sum c^2$ of the level-3 \texttt{db4} decomposition of the speed signal $v_i\phi$, reflect-padded to a power of two \\
+\f{dwt_energy_total}, \f{dwt_entropy} & total energy; Shannon entropy of the normalised energy distribution \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Interaction (7), $n\ge 15$ and $\ge2$ tracks in the video}} \\
+\f{mean_pairwise_distance}, \f{min_pairwise_distance}, \f{std_pairwise_distance} & distance to every other track, on the frames where both were observed (px) \\
+\f{mean_relative_speed_px_s}, \f{max_relative_speed_px_s} & $\lvert v^{A}_i-v^{B}_i\rvert\,\phi$ over shared frames \\
+\f{proximity_duration_ratio} & share of shared frames at distance $<100$ px \\
+\f{proximity_event_rate_s} & number of entries into the 100 px neighbourhood per second of overlap \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Video-level features (not pooled).}
+\begin{center}
+\fontsize{7.5}{9}\selectfont
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{0.27\linewidth} p{0.66\linewidth}@{}}
+\toprule
+\textbf{Features} & \textbf{Definition} \\
+\midrule
+\f{n_valid_tracks} & number of tracks that produced at least one descriptor (all configurations) \\
+\f{temporal_n_tracks}, \f{temporal_n_long_tracks}, \f{temporal_spread}, \f{temporal_spatial_spread}, \f{temporal_overlap_count}, \f{temporal_tracks_per_frame}, \f{temporal_mean_track_len}, \f{temporal_max_track_len} & track count; tracks of $\ge15$ points; std of track lengths; mean std of all centroids; number of pairs of long tracks; total track points per frame; mean and maximum track length (8) \\
+\f{meta_num_frames}, \f{meta_duration_sec}, \f{meta_fps} & frame count, duration and frame rate read from the dataset's metadata sheet (3). \emph{File properties; they can correlate with recording setup.} \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Added in the 221-feature configuration; none requires a track}} \\
+\f{diag_laplacian_*}, \f{diag_tenengrad_*}, \f{diag_brenner_*} & mean, std, min, max over frames of three sharpness measures (12) \\
+\f{diag_brightness_mean}, \f{diag_brightness_var}, \f{diag_dynamic_range}, \f{diag_low_contrast_ratio} & frame brightness statistics; share of frames with Laplacian variance $<50$ (4). \emph{Direct measurements of blur and exposure.} \\
+\f{flow_mean_mag}, \f{flow_std_mag}, \f{flow_max_mag}, \f{flow_prop_moving}, \f{flow_dir_entropy}, \f{flow_jerk} & Farneb\"ack dense flow on $160{\times}120$ frames every 5th frame: magnitude statistics, share of pixels moving $>1$ px, direction entropy, mean absolute change of mean magnitude (6) \\
+\f{flow_hof_mean_0..7}, \f{flow_hof_std_0..7} & mean and std over time of an 8-bin histogram of flow directions (16) \\
+\f{app_lbp_mean_0..9}, \f{app_lbp_std_0..9} & uniform LBP (8 neighbours) histogram, 10 bins, of $64{\times}64$ frames, mean and std over about 30 sampled frames (20) \\
+\f{app_grad_energy_mean}, \f{app_grad_energy_std} & mean Sobel gradient magnitude (2) \\
+\f{app_hog_mean_0..5}, \f{app_hog_std_0..5} & magnitude-weighted histogram of unsigned gradient orientations in 6 bins over the whole frame (12). \emph{A global orientation histogram, not the cell-block HOG descriptor.} \\
+\f{indicator_tracks_present}, \f{meta_n_traj_tracks} & 1 if any track yielded descriptors; number of such tracks (2) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Totals.} Trajectory-only baseline: $14\times3+1+8+3=54$. Six-family set: $45\times3+1+8+3=147$.
+Multi-family set: $147+16+22+34+2=221$. \todo{confirm 54, 147 and 221 against the \texttt{feature\_count} printed in the run logs}

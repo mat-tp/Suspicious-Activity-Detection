@@ -1,0 +1,15 @@
+extends: group_i_adaptive_mog2.yaml
+
+experiment:
+  name: group_i_grouped_cv
+  description: >
+    Group I with leakage-safe cross-validation. Copies of the same recording (other
+    distortion levels or H.264 qualities) never straddle a train/test split. Set
+    group_regex to match your file naming (first capture group = recording id), or
+    point group_map_csv at a video_name,group table. Check the grouping with
+    scripts/audit_duplicates.py first.
+  group: IG
+
+training:
+  group_map_csv: data/groups.csv      # written by scripts/audit_duplicates.py
+  # or, instead: group_regex: "^(.+?)_(?:Pri|Exp|Fo|ExFo)"   (edit to match the real file names)

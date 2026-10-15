@@ -20,12 +20,7 @@ detection:
   # mog2.* (history, var_threshold, detect_shadows) inherited from base.yaml so
   # every group and ablation shares one value. var_threshold is the CEILING of
   # the adaptive range [tau_min, var_threshold].
-  adaptive_mog2:
-    relaxed_var_threshold: 10.0   # tau_r: threshold under full relaxation
-    quality_threshold: 0.4        # q: below this combined score, adapt
-    mask_weight: 0.7              # w: weight of mask quality vs track quality
-    threshold_floor: 8.0          # tau_min: never go below this threshold
-    update_once: true             # false = old behaviour (second model update)
+  # adaptive_mog2.* (q, w, tau_r, tau_min, ema_alpha, ...) inherited from base.yaml.
   morphology:
     close_iter: 2
     open_iter: 1

@@ -25,6 +25,7 @@ from sklearn.preprocessing import LabelEncoder
 from ..config import Config
 from ..dataset_info import DatasetInfoHandler
 from ..evaluation.cross_validation import check_training_viability, cross_validate_model
+from ..evaluation.groups import derive_groups, group_summary
 from ..evaluation.metrics import confusion, scores_from_confusion
 from ..evaluation.report import (
     print_summary,
@@ -192,7 +193,26 @@ class ExperimentRunner:
             run_dir=self.run_dir, plots=self.plots, fo_visualizer=self.fo_visualizer,
             visualise=self.visualise, n_visualise=self.n_visualise,
         )
-        return collector.collect(df, use_sample)
+        features = collector.collect(df, use_sample)
+        self.save_video_features(features)
+        return features
+
+    def save_video_features(self, video_features: List[Dict]) -> Optional[Path]:
+        """Cache the per-video feature vectors so later runs can skip video processing."""
+        if not video_features or self.run_dir is None:
+            return None
+        path = Path(self.run_dir) / "video_features.csv"
+        pd.DataFrame(video_features).to_csv(path, index=False)
+        print(f"  Cached video features -> {path}")
+        return path
+
+    @staticmethod
+    def load_video_features(csv_path) -> List[Dict]:
+        """Load a cache written by save_video_features. Empty cells (feature absent for that
+        video) are dropped, so the matrix builder fills them exactly as in the original run."""
+        frame = pd.read_csv(csv_path)
+        return [{k: v for k, v in row.items() if not (isinstance(v, float) and np.isnan(v))}
+                for row in frame.to_dict("records")]
 
     def train_and_evaluate(self, video_features: List[Dict], target_col: str = "activity") -> Dict:
         """Cross-validate every configured model on the video-level feature vectors."""
@@ -200,7 +220,9 @@ class ExperimentRunner:
             print(f"\nNo video features for target '{target_col}'.")
             return {}
 
-        X, y_enc, le, feature_keys = self._build_matrix(video_features, target_col)
+        X, y_enc, le, feature_keys = self._build_matrix(
+            video_features, target_col,
+            drop_prefixes=list(self.config.features.get("drop_prefixes", []) or []))
         class_names = le.classes_.tolist()
         print(f"\nFeature matrix: {X.shape[0]} videos x {X.shape[1]} features")
         print(f"Target: {target_col}")
@@ -213,6 +235,15 @@ class ExperimentRunner:
         if not viable:
             log.warning("Training skipped: %s", msg)
             return {"error": msg, "viable": False}
+
+        groups = derive_groups([fv["video_name"] for fv in video_features],
+                               regex=training.get("group_regex"),
+                               map_csv=training.get("group_map_csv"))
+        if groups is not None:
+            print(f"Grouped CV (no recording split across folds): {group_summary(groups)}")
+        else:
+            print("WARNING: ungrouped CV. Re-encodings of one recording may sit in both train "
+                  "and test folds; set training.group_regex or training.group_map_csv.")
 
         imbalance = ImbalanceConfig.from_config(self.config.get("imbalance"))
         print(f"Imbalance handling: {imbalance.describe()}")
@@ -231,7 +262,8 @@ class ExperimentRunner:
                 cv = cross_validate_model(
                     model, X, y_enc, class_names, n_splits=n_folds,
                     n_repeats=training.get("cv_repeats", 1), seed=self.seed,
-                    n_jobs=training.get("n_jobs", 1), n_boot=training.get("n_bootstrap", 1000))
+                    n_jobs=training.get("n_jobs", 1), n_boot=training.get("n_bootstrap", 1000),
+                    groups=groups)
                 oof_predictions[name] = cv.pop("_oof_pred")
                 print_summary(name, cv)
                 cv_by_model[name] = cv
@@ -274,11 +306,22 @@ class ExperimentRunner:
     # ---- helpers for train_and_evaluate -----------------------------------
 
     @staticmethod
-    def _build_matrix(video_features: List[Dict], target_col: str):
+    def _build_matrix(video_features: List[Dict], target_col: str, drop_prefixes=None):
         meta_keys = {"activity", "distortion", "video_name", "n_tracks", "frames_used",
-                     "track_length", "feature_count", "track_confidence"}
+                     "track_length", "feature_count", "track_confidence", "has_trajectory"}
         feature_keys = sorted(set().union(*(fv.keys() for fv in video_features)) - meta_keys)
+        if drop_prefixes:
+            dropped = [k for k in feature_keys if k.startswith(tuple(drop_prefixes))]
+            feature_keys = [k for k in feature_keys if k not in set(dropped)]
+            print(f"  Feature ablation: dropped {len(dropped)} features with prefixes "
+                  f"{list(drop_prefixes)}; {len(feature_keys)} remain")
         X = np.array([[fv.get(k, 0.0) for k in feature_keys] for fv in video_features])
+        # Constant tracks or empty inputs can still leave NaN/inf in a statistic. Classifiers
+        # such as SVM and KNN reject them, so replace them with 0 and say how many there were.
+        n_bad = int((~np.isfinite(X)).sum())
+        if n_bad:
+            print(f"  WARNING: replaced {n_bad} non-finite feature value(s) with 0")
+            X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
         le = LabelEncoder()
         y_enc = le.fit_transform([fv[target_col] for fv in video_features])
         return X, y_enc, le, feature_keys

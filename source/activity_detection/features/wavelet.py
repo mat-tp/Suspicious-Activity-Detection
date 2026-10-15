@@ -28,9 +28,9 @@ class WaveletFeatures(FeatureExtractor):
             return None
         fps    = float(context.get("fps", 10.0))
         deltas = np.diff(traj, axis=0)
-        # Normalise to px/s so wavelet energies are in (px/s)², comparable
-        # across videos with different frame rates (mentor v6.0).
-        # Research: Zhang et al. (2022) — DWT on speed signals.
+        # Speeds in px/s, so wavelet energies are in (px/s)^2 and comparable across
+        # videos with different frame rates. The transform is applied to the speed
+        # signal of the track.
         speeds = np.linalg.norm(deltas, axis=1) * fps   # px/s
         n = len(speeds)
         pad_len = 2 ** int(np.ceil(np.log2(max(n, 8)))) - n

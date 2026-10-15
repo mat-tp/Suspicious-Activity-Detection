@@ -1,0 +1,13 @@
+extends: group_i_adaptive_mog2.yaml
+
+experiment:
+  name: group_i_minlen30_filtered
+  description: >
+    Group I with a hard minimum trajectory length:
+    tracks shorter than 30 frames are dropped before feature extraction. By default
+    (filter_short_tracks: false) short tracks are still used by the trajectory features.
+  group: I30
+
+tracking:
+  min_trajectory_len: 30
+  filter_short_tracks: true

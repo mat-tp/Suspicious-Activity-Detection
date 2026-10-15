@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 
 from . import registry
-from .config import load_config
+from .config import load_config, merge_overrides, parse_set_overrides
 from .experiment.runner import ExperimentRunner
 from .optional import TORCH_AVAILABLE
 from .paths import CONFIGS_DIR
@@ -44,6 +44,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--diagnose", action="store_true", help="extract features only, do not train")
     p.add_argument("--visualise", action="store_true", help="write FiftyOne visualisations")
     p.add_argument("--n-visualise", type=int, default=3, help="visualised videos per activity class")
+    p.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
+                   help="override one config value, e.g. --set detection.mog2.history=300 "
+                        "(repeatable; values are parsed as YAML)")
+    p.add_argument("--workers", type=int, help="number of video-processing worker processes "
+                                               "(overrides experiment.n_workers)")
+    p.add_argument("--features-csv", help="reuse a cached video_features.csv instead of "
+                                          "processing videos (classifier-only re-runs)")
     p.add_argument("--list-configs", action="store_true", help="list available configs and exit")
     p.add_argument("--list-components", action="store_true", help="list registered components and exit")
     return p
@@ -66,8 +73,13 @@ def list_components() -> None:
 def run_group(group: str, args: argparse.Namespace) -> None:
     print(f"\n{'#' * 70}\n# GROUP: {group}\n{'#' * 70}")
     try:
-        cfg = load_config(group, overrides={"dataset": {"n_random_videos_per_group": args.n}})
-    except FileNotFoundError as err:
+        overrides = merge_overrides(
+            {"dataset": {"n_random_videos_per_group": args.n}},
+            {"experiment": {"n_workers": args.workers}} if args.workers else None,
+            parse_set_overrides(args.overrides),
+        )
+        cfg = load_config(group, overrides=overrides)
+    except (FileNotFoundError, ValueError) as err:
         print(f"ERROR: {err}")
         return
 
@@ -83,12 +95,18 @@ def run_group(group: str, args: argparse.Namespace) -> None:
 
     targets = ["activity", "distortion"] if args.target == "both" else [args.target]
     try:
+        # Video processing takes hours, so tabular runs collect features once and reuse
+        # them for every target.
+        cached_features = None
+        if data_path != "clip":
+            cached_features = (ExperimentRunner.load_video_features(args.features_csv)
+                               if args.features_csv else runner.collect_video_features(df, use_sample=args.sample))
         for target in targets:
             print(f"\n  --- Target: {target} ---")
             if data_path == "clip":
                 run_neural(runner, df, target, args)
             else:
-                run_tabular(runner, df, target, args)
+                run_tabular(runner, cached_features, target, args)
     except ImportError as err:
         print(f"  SKIPPING {group}: {err}")
 
@@ -103,8 +121,7 @@ def run_neural(runner, df, target, args) -> None:
         runner.train_neural_model(clips, target_col=target)
 
 
-def run_tabular(runner, df, target, args) -> None:
-    features = runner.collect_video_features(df, use_sample=args.sample)
+def run_tabular(runner, features, target, args) -> None:
     if not features:
         print(f"  No video features collected for target '{target}'.")
     elif args.diagnose:

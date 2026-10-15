@@ -19,7 +19,9 @@ def mapping(model, universe="all"):
     for t in ("activity", "distortion"):
         m[f"fig_threshold_{t}.png"] = e / f"mog2_threshold_{t}.png"
         m[f"fig_factorial_{t}.png"] = e / f"factorial_{t}" / f"factorial_{universe}_{model}.png"
-        m[f"fig_sensitivity_{t}.png"] = e / f"sensitivity_ablation_1_detector_only_{t}" / "sensitivity.png"
+        for group in ("preprocessing", "detector", "adaptive", "tracker", "features",
+                      "classifier", "imbalance"):
+            m[f"fig_ablation_{group}_{t}.png"] = e / "parameter_ablation" / f"ablation_{group}_{t}.png"
     return m
 
 
@@ -27,16 +29,20 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model", default="lightgbm")
     p.add_argument("--universe", default="all", choices=["all", "common"])
+    p.add_argument("--strict", action="store_true", help="exit with status 1 if any figure is missing")
     a = p.parse_args(argv)
     dest = PROJECT_ROOT / "docs" / "images"
     dest.mkdir(parents=True, exist_ok=True)
+    missing = 0
     for name, src in mapping(a.model, a.universe).items():
         if src.exists():
             shutil.copy(src, dest / name)
             print(f"copied  {name}")
         else:
+            missing += 1
             print(f"MISSING {name}  (expected {src})")
+    return 1 if (missing and a.strict) else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

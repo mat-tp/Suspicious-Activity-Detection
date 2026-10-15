@@ -67,6 +67,16 @@ detection:
     # Every result before this change used 25. Justified by scripts/mog2_threshold_sweep.py.
     var_threshold: 16
     detect_shadows: false
+  # Settings of the adaptive MOG2 detector. Defined once here so every adaptive config
+  # shares the same values; they are ignored unless detection.type is adaptive_mog2.
+  adaptive_mog2:
+    relaxed_var_threshold: 10.0   # tau_r: threshold under full relaxation
+    quality_threshold: 0.4        # q: below this combined score, adapt
+    mask_weight: 0.7              # w: weight of mask quality vs track quality
+    threshold_floor: 8.0          # tau_min: never go below this threshold
+    ema_alpha: 0.8                # smoothing of the per-frame track-quality signal
+    min_track_len: 5              # mean track length (frames) that counts as a fully reliable track
+    update_once: true             # false = old behaviour (second model update on the retry)
   morphology:
     close_iter: 2
     open_iter: 1
@@ -103,6 +113,16 @@ features:
     - mean
     - max
     - std
+  # Constructor arguments of individual feature modules (used only if the module is enabled).
+  module_params:
+    wavelet:
+      wavelet: db4              # mother wavelet
+      level: 3                  # decomposition depth
+    interaction:
+      proximity_threshold: 100.0   # pixels: two tracks closer than this count as interacting
+  # Multi-family mode only (features.enable_multifamily):
+  global_flow_step: 5           # compare every 5th frame for the global optical-flow descriptor
+  appearance_frame_count: 30    # about this many evenly spaced frames feed the appearance descriptor
 
 # Default model set — all classical + boosting models.
 # Group-specific configs override this list when they restrict to a subset.

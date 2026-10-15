@@ -1,9 +1,9 @@
 """2x2x2 factorial ablation: detector x preprocessing x features.
 
-Answers SACAIR Reviewer 3, who pointed out that the baseline / ablation / proposed
-configurations changed several things at once, so the gain could not be credited
-to adaptive MOG2. Here all eight combinations are run (each factor on or off) and
-the effect of every factor is estimated while the others are held fixed.
+Comparing a baseline with a final pipeline that differs in several factors cannot
+attribute the gain to any one of them. Here all eight combinations are run (each
+factor on or off) and the effect of every factor is estimated while the others are
+held fixed.
 
     D = detector       0 fixed MOG2          1 adaptive MOG2
     P = preprocessing  0 standard            1 distortion-aware

@@ -127,3 +127,30 @@ def load_config(group_name: str, overrides: dict = None) -> Config:
     if not hasattr(config, "paths"):
         log.warning("No 'paths' section in config. Available keys: %s", list(config.keys()))
     return config
+
+
+def parse_set_overrides(assignments) -> dict:
+    """Turn ["detection.mog2.history=300", "tracking.filter_short_tracks=true"] into a nested dict.
+
+    Values are parsed as YAML scalars/lists, so numbers, booleans, null and [1, 2] all work.
+    """
+    import yaml
+    overrides: dict = {}
+    for assignment in assignments or []:
+        if "=" not in assignment:
+            raise ValueError(f"--set expects dotted.key=value, got '{assignment}'")
+        dotted_key, raw_value = assignment.split("=", 1)
+        node = overrides
+        *parents, leaf = dotted_key.strip().split(".")
+        for key in parents:
+            node = node.setdefault(key, {})
+        node[leaf] = yaml.safe_load(raw_value)
+    return overrides
+
+
+def merge_overrides(*override_dicts) -> dict:
+    """Deep-merge several override dicts; later ones win."""
+    merged: dict = {}
+    for override in override_dicts:
+        merged = _deep_merge(merged, override or {})
+    return merged

@@ -7,6 +7,25 @@ from scipy.spatial import ConvexHull
 from scipy.spatial.distance import euclidean
 from scipy.stats import kurtosis, skew
 
+# A sample whose spread is below this has no meaningful skewness or kurtosis (scipy returns NaN).
+MIN_SPREAD_FOR_SHAPE_STATISTICS = 1e-9
+
+
+def safe_skew(values) -> float:
+    """Skewness, or 0.0 when there are fewer than 3 values or they are (nearly) constant."""
+    values = np.asarray(values, dtype=float)
+    if len(values) <= 2 or np.ptp(values) < MIN_SPREAD_FOR_SHAPE_STATISTICS:
+        return 0.0
+    return float(np.nan_to_num(skew(values)))
+
+
+def safe_kurtosis(values) -> float:
+    """Excess kurtosis, or 0.0 when there are fewer than 3 values or they are (nearly) constant."""
+    values = np.asarray(values, dtype=float)
+    if len(values) <= 2 or np.ptp(values) < MIN_SPREAD_FOR_SHAPE_STATISTICS:
+        return 0.0
+    return float(np.nan_to_num(kurtosis(values)))
+
 from ..interfaces import FeatureDict, FeatureExtractor, Track
 from ..registry import register
 
@@ -16,7 +35,7 @@ class TrajectoryFeatures(FeatureExtractor):
     """
     Trajectory-level motion descriptors, fully normalised to physical units.
 
-    Normalisation (mentor v6.0 — applied identically to ALL groups A–I):
+    Normalisation (applied identically in every configuration):
       speeds    [px/frame]  × fps   → px/s
       path_len, net_disp             ÷ duration_sec → px/s (rates)
       track_duration               = n_frames / fps (seconds)
@@ -27,7 +46,7 @@ class TrajectoryFeatures(FeatureExtractor):
     CAP_PROP_FPS; default 10.0 for backward compatibility).
     Per-track duration uses the track's own frame count, NOT the total
     video duration, so a short track inside a long video is correctly
-    normalised.  Research: mentor review v6.0; Sargano et al. (2017).
+    normalised.
     """
 
     def __init__(self, min_trajectory_len=30):
@@ -80,8 +99,8 @@ class TrajectoryFeatures(FeatureExtractor):
             "mean_speed_px_s":              float(speeds_ps.mean()),
             "max_speed_px_s":               float(speeds_ps.max()),
             "std_speed_px_s":               float(speeds_ps.std()),
-            "skew_speed":                   float(skew(speeds_ps)) if len(speeds_ps) > 2 else 0.0,
-            "kurt_speed":                   float(kurtosis(speeds_ps)) if len(speeds_ps) > 2 else 0.0,
+            "skew_speed":                   safe_skew(speeds_ps),
+            "kurt_speed":                   safe_kurtosis(speeds_ps),
             "mean_direction_deg":           float(angles_deg.mean()),
             "direction_std_deg":            float(angles_deg.std()),
             "bbox_area":                    bbox_area,
@@ -118,7 +137,7 @@ class CircularMotionFeatures(FeatureExtractor):
 @register("feature", "kinematics")
 class KinematicsFeatures(FeatureExtractor):
     """
-    Acceleration and jerk in physical units (mentor v6.0).
+    Acceleration and jerk in physical units.
 
       speed     [px/frame]  × fps   = speed  [px/s]
       accel     Δspeed/Δt   × fps   = accel  [px/s²]  (Δt = 1/fps s)
@@ -151,18 +170,18 @@ class KinematicsFeatures(FeatureExtractor):
             "mean_accel_px_s2": float(np.mean(accel_ps2)),
             "std_accel_px_s2":  float(np.std(accel_ps2)),
             "max_accel_px_s2":  float(np.max(np.abs(accel_ps2))),
-            "skew_accel":       float(skew(accel_ps2)) if len(accel_ps2) > 2 else 0.0,
+            "skew_accel":       safe_skew(accel_ps2),
             "mean_jerk_px_s3":  float(np.mean(jerk_ps3)),
             "std_jerk_px_s3":   float(np.std(jerk_ps3)),
             "max_jerk_px_s3":   float(np.max(np.abs(jerk_ps3))),
-            "skew_jerk":        float(skew(jerk_ps3))  if len(jerk_ps3)  > 2 else 0.0,
+            "skew_jerk":        safe_skew(jerk_ps3),
         }
 
 
 @register("feature", "shape")
 class ShapeFeatures(FeatureExtractor):
     """
-    Trajectory shape descriptors (mentor v6.0 normalisation).
+    Trajectory shape descriptors, with rates expressed per second.
 
       mean/std curvature: |Δangle| per step (rad) — already dimensionless.
       turning_rate_rad_s: total angle turned ÷ duration_sec → rad/s.

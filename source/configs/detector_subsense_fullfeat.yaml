@@ -2,7 +2,7 @@
 # Same as group_i_adaptive_mog2 (distortion-aware preprocessing, 221-dim features,
 # same tracker) except the background model. Compare with group_i_adaptive_mog2
 # (adaptive MOG2) and ablation_4_full_pipeline_fixed_mog2 (fixed MOG2).
-# Answers SACAIR Reviewer 1: is the gain generic adaptivity or specific to this method?
+# Question: is the gain generic to adaptive background models or specific to adaptive MOG2?
 extends: group_i_adaptive_mog2.yaml
 
 experiment:

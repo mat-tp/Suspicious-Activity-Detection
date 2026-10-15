@@ -87,19 +87,32 @@ def _auroc(y_true, y_proba, k) -> Optional[float]:
 
 
 def bootstrap_ci(y_true: np.ndarray, y_pred: np.ndarray, n_classes: int,
-                 n_boot: int = 1000, alpha: float = 0.05, seed: int = 0) -> Dict[str, List[float]]:
+                 n_boot: int = 1000, alpha: float = 0.05, seed: int = 0,
+                 groups: Optional[np.ndarray] = None) -> Dict[str, List[float]]:
     """Percentile bootstrap confidence intervals for the headline metrics.
 
     Videos are resampled with replacement and the metrics recomputed each time.
     This shows how much the score depends on which videos happened to be in the
     data. It does not capture variation from retraining the model.
+
+    When ``groups`` is given (one id per video), whole groups are resampled instead
+    of single videos. Videos of one recording are not independent observations, so
+    resampling them one by one would give intervals that are too narrow.
     """
     y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
     rng = np.random.default_rng(seed)
     n = len(y_true)
+    members_by_group = None
+    if groups is not None:
+        groups = np.asarray(groups)
+        members_by_group = [np.flatnonzero(groups == g) for g in np.unique(groups)]
     draws = {m: np.empty(n_boot) for m in HEADLINE_METRICS}
     for b in range(n_boot):
-        idx = rng.integers(0, n, n)
+        if members_by_group is None:
+            idx = rng.integers(0, n, n)
+        else:
+            picked = rng.integers(0, len(members_by_group), len(members_by_group))
+            idx = np.concatenate([members_by_group[g] for g in picked])
         s = scores_from_confusion(confusion(y_true[idx], y_pred[idx], n_classes))
         for m in HEADLINE_METRICS:
             draws[m][b] = s[m]

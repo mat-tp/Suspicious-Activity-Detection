@@ -28,6 +28,7 @@ class BaseTracker(Tracker, abc.ABC):
         self.next_id: int = 0
         self.tracks: Dict[int, Track] = {}
         self.pruned_count: int = 0
+        self.frame_idx: int = -1          # index of the frame being processed
 
     # ── Subclass contract ────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ class BaseTracker(Tracker, abc.ABC):
             "id": self.next_id,
             "centroid": centroid,
             "trajectory": [centroid],
+            "frames": [self.frame_idx],   # frame index of each trajectory point
             "disappeared": 0,
             "tracker_type": self.tracker_type or self.__class__.__name__,
             **extra,
@@ -63,8 +65,10 @@ class BaseTracker(Tracker, abc.ABC):
         track["centroid"] = centroid
         track["disappeared"] = 0
         track["trajectory"].append(centroid)
+        track.setdefault("frames", []).append(self.frame_idx)
         if len(track["trajectory"]) > self.max_trajectory_len:
             track["trajectory"] = track["trajectory"][-self.max_trajectory_len :]
+            track["frames"] = track["frames"][-self.max_trajectory_len :]
         if bbox is not None:
             track["bbox"] = bbox
 
@@ -85,6 +89,7 @@ class BaseTracker(Tracker, abc.ABC):
     # ── Tracker interface ────────────────────────────────────────────────────
 
     def update(self, detections: List[BBox]) -> List[Track]:
+        self.frame_idx += 1
         self._begin_frame(detections)
         if not detections:
             self._increment_disappeared(list(self.tracks))
@@ -100,3 +105,4 @@ class BaseTracker(Tracker, abc.ABC):
         self.tracks.clear()
         self.next_id = 0
         self.pruned_count = 0
+        self.frame_idx = -1

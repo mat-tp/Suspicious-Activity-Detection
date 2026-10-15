@@ -41,7 +41,10 @@ class PipelineRunner:
                  aggregator: Optional[FeatureAggregator] = None,
                  min_trajectory_len: int = 30,
                  use_dense_trajectories: bool = False,
-                 enable_multifamily: bool = False):
+                 enable_multifamily: bool = False,
+                 filter_short_tracks: bool = False,
+                 global_flow_step: int = 5,
+                 appearance_frame_count: int = 30):
         self.preprocessor = preprocessor
         self.detector = detector
         self.tracker = tracker
@@ -51,6 +54,14 @@ class PipelineRunner:
         self.min_trajectory_len = min_trajectory_len
         self.use_dense_trajectories = use_dense_trajectories
         self.enable_multifamily = enable_multifamily
+        # False keeps the historical behaviour: every track with >= 2 points reaches
+        # the trajectory features (wavelet/interaction apply their own minimum).
+        # True drops tracks shorter than min_trajectory_len before feature extraction.
+        self.filter_short_tracks = filter_short_tracks
+        # Multi-family mode only: frame gap for the global optical-flow descriptor, and the
+        # approximate number of evenly spaced frames used by the appearance descriptor.
+        self.global_flow_step = max(1, int(global_flow_step))
+        self.appearance_frame_count = max(1, int(appearance_frame_count))
 
     def process_video(self, video_path: Path,
                       collect_diagnostics: bool = False,
@@ -79,10 +90,10 @@ class PipelineRunner:
 
         orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        # Read fps from capture; fall back to 10.0 (AD-SVD dataset default).
-        # This value is injected into context["fps"] for every feature extractor
-        # so that all normalised features (px/s, px/s², rad/s …) are computed
-        # in consistent physical units across groups (mentor v6.0).
+        # Frame rate of the video, falling back to 10.0 when the container does not
+        # report one. It is passed to every feature extractor as context["fps"] so
+        # that speeds, accelerations and turning rates are in physical units
+        # (px/s, px/s^2, rad/s) and comparable across videos.
         _cap_fps = float(cap.get(cv2.CAP_PROP_FPS))
         _cap_fps = _cap_fps if _cap_fps > 0 else 10.0
 
@@ -149,14 +160,9 @@ class PipelineRunner:
                 n_detections += len(dets)
                 detections_per_frame.append(len(dets))
 
-                # Pass the pre-processed grayscale frame so that trackers that
-                # maintain appearance models (e.g. TFCRTracker) can compute HOG
-                # features from the current frame.  Trackers that do not accept
-                # frame_gray (centroid, IoU+Hungarian, SORT) ignore this kwarg
-                # gracefully because their update() signatures accept **kwargs.
-                # Manuscript note: this single injection point enables a clean
-                # ablation of the TFCR appearance model without modifying the
-                # pipeline runner logic for other groups.
+                # Trackers with an appearance model (TFCRTracker) need the current
+                # grayscale frame; the geometric trackers (centroid, IoU+Hungarian,
+                # SORT) only use the detections.
                 if isinstance(self.tracker, TFCRTracker):
                     self.tracker.update(dets, frame_gray=pre_result.gray)
                 else:
@@ -246,12 +252,17 @@ class PipelineRunner:
                 frame_detections=frame_detections, frame_size=(orig_w, orig_h))
 
         tracks = self.tracker.get_active_tracks()
+        if self.filter_short_tracks:
+            tracks = [t for t in tracks if len(t["trajectory"]) >= self.min_trajectory_len]
         mean_mag = float(np.mean(flow_mags)) if flow_mags else 0.0
         mean_ang = float(np.mean(flow_angles)) if flow_angles else 0.0
         tracker_metrics = TrackerAnalyzer.compute_tracker_metrics(tracks, frame_no)
 
         context = {"mean_flow_magnitude": mean_mag, "mean_flow_angle_deg": mean_ang,
-                   "all_tracks": tracks, "fps": _cap_fps}
+                   "all_tracks": tracks,
+                   # Sampled videos advance the tracker once per kept frame, so the
+                   # time between trajectory points is frame_sampling / fps seconds.
+                   "fps": _cap_fps / max(int(frame_sampling), 1)}
         if self.use_dense_trajectories and len(all_gray_frames) >= 2:
             mid = len(all_gray_frames) // 2
             context["prev_gray"] = all_gray_frames[max(0, mid-1)]
@@ -280,8 +291,8 @@ class PipelineRunner:
 
         if self.enable_multifamily:
             diag_feats   = extract_diagnostic_features(diagnostics)
-            flow_feats   = extract_global_flow_features(all_gray_frames, flow_step=5)
-            step         = max(1, len(all_gray_frames) // 30)
+            flow_feats   = extract_global_flow_features(all_gray_frames, flow_step=self.global_flow_step)
+            step         = max(1, len(all_gray_frames) // self.appearance_frame_count)
             appear_feats = extract_appearance_features(all_gray_frames[::step])
             n_tj   = len(track_feats)
             tblock = video_fv or {}

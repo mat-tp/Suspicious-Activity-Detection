@@ -1,0 +1,14 @@
+extends: group_i_adaptive_mog2.yaml
+
+experiment:
+  name: ablation_7_no_image_quality_meta
+  description: >
+    Group I without the 16 image-quality features (diag_*: Laplacian, Tenengrad,
+    Brenner, brightness) and without the 3 file-metadata features (frame count,
+    duration, fps). Everything else, including the 34 appearance and 22 global
+    optical-flow features, is kept. Shows how much of the result depends on features
+    that measure blur and exposure directly.
+  group: ABL7
+
+features:
+  drop_prefixes: [diag_, meta_num_, meta_duration, meta_fps]

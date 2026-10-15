@@ -10,7 +10,7 @@ per pixel from how much that pixel's background fluctuates:
 
 The distance between the current pixel and a stored sample mixes the intensity
 difference with the difference in gradient magnitude (weight alpha / mean
-gradient). This is a NumPy implementation on grey frames with the paper's
+gradient). This is a NumPy implementation on grey frames with the original publication's
 default parameters.
 """
 from __future__ import annotations

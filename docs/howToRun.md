@@ -2,11 +2,17 @@
 
 ## 1. Install
 
-Python 3.10 or newer.
+Python 3.10 or newer. The build scripts do this for you: they create a virtual
+environment called `sdr-env`, activate it, and install whatever is missing.
 
 ```bash
-pip install -r requirements.txt
+./build.sh env          # Linux / macOS
+build.bat env           # Windows
 ```
+
+Or by hand: `python -m venv sdr-env`, activate it, then `pip install -r requirements.txt`.
+To run everything (environment, tests, all experiments, analysis, figures) use `./build.sh`
+(see the README); `./build.sh --smoke` first checks the setup on a tiny sample.
 
 Only the first block of `requirements.txt` is required. Missing optional
 packages (LightGBM, XGBoost, PyTorch, ...) just disable the parts that need them.
@@ -82,7 +88,7 @@ python source/run.py --ablations --target activity
 
 ### Detector comparison (ViBe, PBAS, SuBSENSE)
 
-Reviewers asked whether the gains come from adaptive background subtraction in general or
+A natural question is whether the gains come from adaptive background subtraction in general or
 from this particular adaptive MOG2. These configs swap in other adaptive methods, changing
 only the background model (same preprocessing, tracker, mask cleaning and features as Group A):
 
@@ -216,11 +222,13 @@ Cautions:
 ## 8. Sensitivity analysis
 
 ```bash
-python source/scripts/sensitivity_sweep.py --dry-run              # show the plan
-python source/scripts/sensitivity_sweep.py --sample --n 10        # quick trial
-python source/scripts/sensitivity_sweep.py                        # full sweep (hours)
-python source/scripts/sensitivity_sweep.py --params q w --values q=0.3,0.4,0.5
-python source/scripts/sensitivity_sweep.py --resume               # continue after a stop
+python source/scripts/parameter_ablation.py --list                 # every ablated parameter and its values
+python source/scripts/parameter_ablation.py --dry-run              # show the plan
+python source/scripts/parameter_ablation.py --sample --n 5         # quick trial
+python source/scripts/parameter_ablation.py --workers 8            # full ablation (hours)
+python source/scripts/parameter_ablation.py --groups adaptive      # only q, w, tau_r, tau_min, ...
+python source/scripts/parameter_ablation.py --groups classifier imbalance   # fast: reuses cached features
+python source/scripts/parameter_ablation.py --resume               # continue after a stop
 ```
 
 Varies q, w, tau_r and tau_min one at a time on `ablation_1_detector_only` (the adaptive
@@ -250,7 +258,7 @@ Both need a LaTeX installation with `latexmk`.
 source/
 ├── run.py
 ├── configs/                  YAML experiment configs (group_*.yaml, ablation_*.yaml)
-├── scripts/                  sensitivity_sweep.py, compare_experiments.py
+├── scripts/                  parameter_ablation.py, compare_experiments.py, audit_configs.py, ...
 ├── tests/                    pytest tests
 └── activity_detection/
     ├── cli.py                command-line interface

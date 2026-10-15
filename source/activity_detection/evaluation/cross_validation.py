@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from joblib import Parallel, delayed
 from sklearn.base import clone
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from .metrics import (
     HEADLINE_METRICS,
@@ -51,6 +51,14 @@ def _predict_proba(model, X) -> Optional[np.ndarray]:
         return None
 
 
+def _split(X, y, groups, n_splits: int, seed: int):
+    """Stratified folds; with groups, no group is ever split across train and test."""
+    if groups is None:
+        return list(StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X, y))
+    return list(StratifiedGroupKFold(n_splits=n_splits, shuffle=True,
+                                     random_state=seed).split(X, y, groups))
+
+
 def _run_fold(model, X, y, train_idx, test_idx, n_classes: int) -> Dict[str, Any]:
     fitted = clone(model).fit(X[train_idx], y[train_idx])
     pred = fitted.predict(X[test_idx])
@@ -63,10 +71,13 @@ def _run_fold(model, X, y, train_idx, test_idx, n_classes: int) -> Dict[str, Any
 
 def cross_validate_model(model, X: np.ndarray, y: np.ndarray, class_names: List[str],
                          n_splits: int = 5, n_repeats: int = 1, seed: int = 42,
-                         n_jobs: int = 1, n_boot: int = 1000) -> Dict[str, Any]:
+                         n_jobs: int = 1, n_boot: int = 1000,
+                         groups: Optional[np.ndarray] = None) -> Dict[str, Any]:
     """Cross-validate one model and return a JSON-friendly summary.
 
     y must be integer class indices 0..K-1 matching class_names.
+    groups (optional) gives one id per sample; samples sharing an id always land in
+    the same fold (use it when several videos come from the same recording).
 
     Returned keys:
       fold_scores   per-fold scores for every repeat (mean and std are over folds)
@@ -81,8 +92,7 @@ def cross_validate_model(model, X: np.ndarray, y: np.ndarray, class_names: List[
     pooled_proba: List[Optional[np.ndarray]] = []
 
     for repeat in range(n_repeats):
-        splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed + repeat)
-        splits = list(splitter.split(X, y))
+        splits = _split(X, y, groups, n_splits, seed + repeat)
         results = Parallel(n_jobs=n_jobs)(
             delayed(_run_fold)(model, X, y, tr, te, k) for tr, te in splits)
 
@@ -99,7 +109,8 @@ def cross_validate_model(model, X: np.ndarray, y: np.ndarray, class_names: List[
         pooled_pred.append(oof_pred)
         pooled_proba.append(None if np.isnan(oof_proba).any() else oof_proba)
 
-    summary: Dict[str, Any] = {"n_splits": n_splits, "n_repeats": n_repeats, "seed": seed}
+    summary: Dict[str, Any] = {"n_splits": n_splits, "n_repeats": n_repeats, "seed": seed,
+                               "grouped": groups is not None}
     summary["fold_scores"] = {
         m: {"mean": float(np.mean([r[m] for r in fold_rows])),
             "std": float(np.std([r[m] for r in fold_rows])),
@@ -109,7 +120,7 @@ def cross_validate_model(model, X: np.ndarray, y: np.ndarray, class_names: List[
     summary["overfit_gap"] = (summary["fold_scores"]["train_accuracy"]["mean"]
                               - summary["fold_scores"]["accuracy"]["mean"])
     summary["pooled"] = classification_metrics(y, pooled_pred[0], class_names, pooled_proba[0])
-    summary["ci95"] = bootstrap_ci(y, pooled_pred[0], k, n_boot=n_boot, seed=seed)
+    summary["ci95"] = bootstrap_ci(y, pooled_pred[0], k, n_boot=n_boot, seed=seed, groups=groups)
     if n_repeats > 1:
         per_repeat = [scores_from_confusion(confusion(y, p, k))["macro_f1"] for p in pooled_pred]
         summary["repeats"] = {"macro_f1": per_repeat,

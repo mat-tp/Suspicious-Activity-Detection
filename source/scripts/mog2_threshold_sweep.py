@@ -4,8 +4,7 @@ Why this exists
 ---------------
 * base.yaml used 25, the literature/OpenCV value is 16 (Zivkovic & van der
   Heijden, 2006).  Neither was justified on this dataset.
-* A reviewer can fairly ask whether adaptive MOG2 wins only because it uses a
-  *lower* threshold on hard frames.  The control for that is plain MOG2 at
+* Adaptive MOG2 might win only because it uses a *lower* threshold on hard frames.  The control for that is plain MOG2 at
   every fixed threshold, scored on the same videos and folds.  By default this
   script sweeps BOTH the fixed detector (group_a_classical) and the adaptive
   one (ablation_1_detector_only) over the same grid, so one figure shows
@@ -39,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from activity_detection.config import load_config  # noqa: E402
 from activity_detection.paths import EXPERIMENTS_DIR  # noqa: E402
-from sensitivity_sweep import read_rows, run_setting  # noqa: E402
+from sweep_common import read_rows, run_setting  # noqa: E402
 
 DEFAULT_VALUES = [8, 10, 12, 16, 20, 25, 32, 40]
 LITERATURE_VALUE = 16     # Zivkovic & van der Heijden (2006)
@@ -63,6 +62,7 @@ def parse_args(argv=None):
                    help="the one classifier used to score every setting")
     p.add_argument("--sample", action="store_true")
     p.add_argument("--n", type=int, default=5, help="videos per class when --sample is set")
+    p.add_argument("--workers", type=int, default=0, help="video-processing worker processes")
     p.add_argument("--resume", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args(argv)
@@ -83,12 +83,15 @@ def make_plan(base_cfg, values):
                      "this sweep needs mog2 or adaptive_mog2.")
 
 
-def setting_config(base_name, value, model, n_videos):
-    return load_config(base_name, overrides={
+def setting_config(base_name, value, model, n_videos, workers=0):
+    overrides = {
         "models": {"active": [{"name": model, "params": {}}]},
         "dataset": {"n_random_videos_per_group": n_videos},
         "detection": {"mog2": {"var_threshold": _fmt(value)}},
-    })
+    }
+    if workers:
+        overrides["experiment"] = {"n_workers": workers}
+    return load_config(base_name, overrides=overrides)
 
 
 def add_common_subset_scores(rows, target, model):
@@ -223,7 +226,7 @@ def sweep(args, runner_class=None):
                 print(f"Skipping {name} var_threshold={_fmt(v)} (already done)")
                 continue
             print(f"\n{'=' * 70}\n  {name}  var_threshold = {_fmt(v)}\n{'=' * 70}")
-            cfg = setting_config(name, v, args.model, args.n)
+            cfg = setting_config(name, v, args.model, args.n, args.workers)
             row = run_setting(cfg, f"mog2thr_{name}_{_fmt(v)}", args.target, args.sample, runner_class)
             rows.append({"value": _fmt(v), "is_literature": v == LITERATURE_VALUE, **row})
             write_rows(csv_path, rows)                 # saved after every setting

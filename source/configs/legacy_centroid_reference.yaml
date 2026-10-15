@@ -5,7 +5,7 @@ experiment:
   description: >
     Legacy centroid tracker — regression test reference only.
     Used to verify Group F ablation results against the original
-    centroid implementation. Do NOT use for paper results.
+    centroid implementation. Not part of the reported experiments.
   group: REF
 
 tracking:

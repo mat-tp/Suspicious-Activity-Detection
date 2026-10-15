@@ -23,16 +23,13 @@ from ..optional import (
 from ..registry import register
 
 if TORCH_AVAILABLE:
-    # Simple in-memory frame cache so repeated epochs don't re-decode every
-    # video from disk every time (Group C review note: "full video decoding
-    # every sample" — high computational cost, low scientific cost, but easy
-    # to fix and meaningfully speeds up training).
+    # In-memory frame cache, so repeated epochs do not decode every video from
+    # disk again.
     _FRAME_CACHE: Dict[str, list] = {}
     _FRAME_CACHE_MAX_ITEMS = 256
 
     def _compute_class_weights(y_enc: np.ndarray, n_classes: int) -> "torch.Tensor":
-        """Inverse-frequency class weights for CrossEntropyLoss, addressing
-        Group C review note 'no class weighting' (AD-SVD is not balanced)."""
+        """Inverse-frequency class weights for CrossEntropyLoss (the classes are imbalanced)."""
         counts = np.bincount(y_enc, minlength=n_classes).astype(np.float64)
         counts[counts == 0] = 1.0
         weights = counts.sum() / (n_classes * counts)
@@ -102,8 +99,7 @@ if TORCH_AVAILABLE:
             self.frame_size = frame_size
             self.sampling = sampling
             self.train = train
-            # Light, video-safe augmentation applied only to the training
-            # split (Group C review: "Add lightweight augmentation").
+            # Light, video-safe augmentation applied only to the training split.
             # Kept deliberately mild — flip / crop / brightness jitter only —
             # so per-frame transforms stay consistent and don't introduce
             # spurious motion artefacts within a clip.
@@ -191,8 +187,7 @@ if TORCH_AVAILABLE:
     def _train_val_split_paths(X, y, val_size=0.15, seed=42):
         """Split off a validation set for early stopping. Falls back to a
         non-stratified split (or no split, if too few samples) gracefully,
-        mirroring the stratification fallback already used elsewhere in the
-        pipeline (Group C review: 'no validation split / early stopping')."""
+        mirroring the stratification fallback used elsewhere in the pipeline."""
         y = np.asarray(y)
         n_classes = len(np.unique(y))
         if len(y) < max(4, n_classes * 2):
@@ -208,10 +203,8 @@ if TORCH_AVAILABLE:
     class CNNModel(Model):
         """2D-CNN baseline.
 
-        Group C review fix (Major issue 1): the previous implementation
-        averaged raw frames into a single static image before the backbone
-        ever saw them, which discards motion/ordering/acceleration entirely.
-        Here each frame is passed through the ResNet backbone individually
+        Averaging raw frames into one static image before the backbone would discard
+        motion and ordering, so each frame is passed through the ResNet backbone individually
         and the resulting *feature vectors* are averaged ("late pooling"),
         which preserves far more of the per-frame visual information while
         keeping the model a lightweight 2D-CNN comparison baseline (the
