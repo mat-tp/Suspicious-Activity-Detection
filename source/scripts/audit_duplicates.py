@@ -19,6 +19,8 @@ thresholds, the number of videos that could not be fingerprinted and the table's
 from __future__ import annotations
 
 import argparse
+import os
+from concurrent.futures import ProcessPoolExecutor
 import csv
 import hashlib
 import json
@@ -188,6 +190,8 @@ def main() -> None:
     ap.add_argument("--review-singletons", type=int, default=25,
                     help="how many unmatched videos to list for manual checking")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1),
+                    help="parallel processes used to decode videos")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -196,14 +200,18 @@ def main() -> None:
     names = names[: args.n] if args.n else names
     prints: Dict[str, Dict] = {}
     unfingerprinted: List[str] = []
-    for k, name in enumerate(names, 1):
-        fp = fingerprint(Path(cfg.paths.video_dir) / name)
-        if fp:
-            prints[name] = fp
-        else:
-            unfingerprinted.append(name)
-        if k % 200 == 0:
-            print(f"  fingerprinted {k}/{len(names)}")
+    # Decoding every frame is the slow part, so fingerprint videos in parallel.
+    video_dir = Path(cfg.paths.video_dir)
+    paths = [video_dir / name for name in names]
+    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        results = pool.map(fingerprint, paths, chunksize=4)
+        for k, (name, fp) in enumerate(zip(names, results), 1):
+            if fp:
+                prints[name] = fp
+            else:
+                unfingerprinted.append(name)
+            if k % 25 == 0 or k == len(names):
+                print(f"  fingerprinted {k}/{len(names)}", flush=True)
     settings = {"motion_corr": args.motion_corr, "thumb_corr": args.thumb_corr,
                 "frame_tolerance": args.frame_tolerance,
                 "require_same_size": not args.allow_size_mismatch}
