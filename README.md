@@ -173,6 +173,8 @@ weights or resampling inside the training folds only.
 
 Details of the experiment design and known gaps: [docs/ablation_study.md](docs/ablation_study.md).
 
+## What `build.sh` runs
+
 | Stage         | Purpose                                                            |
 | ------------- | ------------------------------------------------------------------ |
 | `env`         | Create and activate `sdr-env`, check and install libraries         |
@@ -217,5 +219,3 @@ runs never mix with real results.
 ```bash
 python -m pytest source/tests        # install imbalanced-learn to run the resampling tests too
 ```
-
-## Reference

@@ -25,7 +25,7 @@ Download AD-SVD and arrange it like this, in the project root:
 data/
 ├── datasetInfo.xlsx
 └── surveillanceVideosDataset/
-    ├── surveillanceVideos/        the .avi files
+    ├── surveillanceVideos/        the video files (.mp4 in the IEEE DataPort download)
     └── surveillanceVideosGT/      the *_gt.txt annotation files
 ```
 
