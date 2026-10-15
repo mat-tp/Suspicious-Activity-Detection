@@ -37,16 +37,39 @@ def main() -> int:
         print(f"  sub-folders in the video folder (videos must be directly inside it): {subfolders[:5]}")
     print(f"  {len(list(truth.glob('*')))} ground-truth files")
 
+    import difflib
+
     import pandas as pd
     names = pd.read_excel(excel)["Name of Video Series"].astype(str).tolist()
     missing = [n for n in names if not (videos / n).exists()]
+    listed = set(names)
+    unlisted = sorted(p.name for p in videos.iterdir() if p.is_file() and p.name not in listed)
     print(f"  videos listed in the Excel file: {len(names)}; found on disk: {len(names) - len(missing)}")
-    if missing:
-        print(f"  first missing names: {missing[:5]}")
-        print("  Check the folder path in source/configs/base.yaml and that the names match exactly "
-              "(extension and upper/lower case included).")
-        return 1
-    return 0
+    if not missing:
+        return 0
+
+    # Show what each missing name probably corresponds to on disk (a spelling or case difference).
+    print(f"\n  {len(missing)} listed video(s) not found, and {len(unlisted)} file(s) on disk that the Excel "
+          f"file does not list:")
+    rows = []
+    for name in missing:
+        close = difflib.get_close_matches(name, unlisted, n=1, cutoff=0.6)
+        rows.append((name, close[0] if close else ""))
+        print(f"    listed: {name:40s} closest unlisted file: {close[0] if close else '(none)'}")
+    report = excel.parent / "missing_videos.csv"
+    pd.DataFrame(rows, columns=["listed_name", "closest_file_on_disk"]).to_csv(report, index=False)
+    print(f"  written: {report}")
+
+    # The experiments record each missing video as a failure and continue, so a handful of
+    # missing files is a warning. Many missing files mean a wrong folder or extension.
+    if len(missing) <= 0.05 * len(names):
+        print("\n  WARNING: a few videos are missing; they will be counted as failures in every run "
+              "(this affects the video-yield numbers). Rename the files or fix the names in the "
+              "Excel file if they are the same recordings.")
+        return 0
+    print("\n  Too many videos are missing: check the folder path in source/configs/base.yaml and that "
+          "the names match exactly (extension and upper/lower case included).")
+    return 1
 
 
 if __name__ == "__main__":
