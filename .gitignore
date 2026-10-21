@@ -49,36 +49,17 @@ docs/logs/smoke_*/
 *.vrb
 !docs/logs/*.log
 
-# Compiled report (the slides in ss/ are kept)
-docs/manuscript/*.pdf
+# Paper and notes stay local; the only note that is shared is howToRun.md
+docs/manuscript/*
+docs/notes/*
+!docs/notes/howToRun.md
 
-# Private notes
-docs/notes/Reviewers_notes.txt
+# The logs of the full runs are kept for now (remove the "#" to leave them out, for example
+# while testing on a VM)
+# docs/logs/*
 
 # Editor and system files
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-
-# The notes on how I Do my Reports and Current Strategies
-
-# since I will be testing on my Google-VM, we can leave out this one for now
-# docs/logs/* 
-docs/manuscript/*
-docs/notes/*
-docs/notes/AUDIT_REPORT.md
-docs/notes/PUBLICATION_STRATEGY.md
-docs/notes/TRAINING_PROCEDURE.md
-docs/notes/ablation_study.md
-docs/notes/CHANGES.md
-docs/notes/Reviewers_notes.txt
-
-# The only thing to share from notes is HowToRun.md
-!docs/notes/howToRun.md
-
-# Remove the "#" in front of these lines to keep the paper out of a public repository
-# while it is under review.
-# docs/manuscript/paper.tex
-# docs/manuscript/extended_abstract.tex
-# docs/manuscript/paper_references.bib
