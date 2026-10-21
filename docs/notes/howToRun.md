@@ -25,12 +25,12 @@ Download AD-SVD and arrange it like this, in the project root:
 ```
 data/
 ├── datasetInfo.xlsx
-└── surveillanceVideosDataset/
-    ├── surveillanceVideos/        the video files (.mp4 in the IEEE DataPort download)
-    └── surveillanceVideosGT/      the *_gt.txt annotation files
+├── surveillanceVideos/            the video files (.mp4 in the IEEE DataPort download)
+└── surveillanceVideosGT/          the *_gt.txt annotation files
 ```
 
-These paths come from `source/configs/base.yaml` and can be changed there.
+These paths come from `source/configs/base.yaml` (`paths.video_dir` and `paths.gt_dir`). If your folders are
+elsewhere, change them there or pass `--set paths.video_dir=... --set paths.gt_dir=...`.
 
 ## 3. Run an experiment
 

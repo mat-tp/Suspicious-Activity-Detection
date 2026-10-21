@@ -7,8 +7,8 @@ experiment:
 
 paths:
   data_dir: data
-  video_dir: data/surveillanceVideosDataset/surveillanceVideos
-  gt_dir: data/surveillanceVideosDataset/surveillanceVideosGT
+  video_dir: data/surveillanceVideos
+  gt_dir: data/surveillanceVideosGT
   dataset_excel: data/datasetInfo.xlsx
   model_dir: models
   plots_dir: plots

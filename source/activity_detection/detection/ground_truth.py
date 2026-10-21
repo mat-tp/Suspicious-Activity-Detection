@@ -30,7 +30,7 @@ class GroundTruthDetector(Detector):
     """
 
     def __init__(self, gt_dir=None, frame_resize=(640, 480), fallback_to_mog2=False):
-        self.gt_dir = (Path(gt_dir) if gt_dir else DATA_DIR / "surveillanceVideosDataset" / "surveillanceVideosGT")
+        self.gt_dir = (Path(gt_dir) if gt_dir else DATA_DIR / "surveillanceVideosGT")
         self.frame_resize = tuple(frame_resize)
         self.fallback_to_mog2 = fallback_to_mog2
         # This is the boxes of the current video, one entry per frame (None where there

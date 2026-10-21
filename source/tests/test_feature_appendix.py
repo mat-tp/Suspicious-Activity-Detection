@@ -2,6 +2,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 import activity_detection.features.interaction  # noqa: F401  (registers extractors)
 import activity_detection.features.track_features  # noqa: F401
 import activity_detection.features.wavelet  # noqa: F401
@@ -13,7 +15,12 @@ from activity_detection.features.video_features import (
     extract_temporal_context)
 from activity_detection.features.wavelet import WaveletFeatures
 
-APPENDIX = (Path(__file__).resolve().parents[2] / "docs" / "manuscript" / "feature_appendix.tex").read_text()
+# This is the appendix of the paper. The paper is kept out of the repository (see .gitignore),
+# so on a computer without it these tests are skipped.
+APPENDIX_FILE = Path(__file__).resolve().parents[2] / "docs" / "manuscript" / "feature_appendix.tex"
+if not APPENDIX_FILE.exists():
+    pytest.skip("docs/manuscript/feature_appendix.tex is not in this checkout", allow_module_level=True)
+APPENDIX = APPENDIX_FILE.read_text()
 LISTED = set(re.findall(r"\\f\{([^}]*)\}", APPENDIX))
 
 
