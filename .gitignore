@@ -75,7 +75,7 @@ docs/notes/CHANGES.md
 docs/notes/Reviewers_notes.txt
 
 # The only thing to share from notes is HowToRun.md
-!notes/howToRun.md
+!docs/notes/howToRun.md
 
 # Remove the "#" in front of these lines to keep the paper out of a public repository
 # while it is under review.
