@@ -1,0 +1,26 @@
+
+[1;34m==> Project root: /home/claude/adsvd/Suspicious-Activity-Detection[0m
+    environment: sdr-env   workers: 2   smoke: 1   results: experiments_smoke
+
+[1;34m==> dataset check[0m
+    $ python source/scripts/check_dataset.py
+  dataset Excel        /home/claude/adsvd/Suspicious-Activity-Detection/data/datasetInfo.xlsx  ->  MISSING
+  video folder         /home/claude/adsvd/Suspicious-Activity-Detection/data/surveillanceVideosDataset/surveillanceVideos  ->  MISSING
+  ground-truth folder  /home/claude/adsvd/Suspicious-Activity-Detection/data/surveillanceVideosDataset/surveillanceVideosGT  ->  MISSING
+
+The dataset is not in place: dataset Excel, video folder, ground-truth folder
+See docs/howToRun.md, step 2, for where AD-SVD goes.
+[1;33mWARNING: step failed (exit 1): dataset check   (log: experiments_smoke/build_logs/20261015_120816/dataset_check_.log)[0m
+
+[1;34m==> factorial cells[0m
+    skipped: dataset check failed
+
+[1;34m==> Summary[0m
+  FAILED   dataset check
+  skipped  factorial cells
+
+[1;31m1 step(s) FAILED.[0m Logs: experiments_smoke/build_logs/20261015_120816
+
+real	0m2.136s
+user	0m2.083s
+sys	0m0.287s

@@ -67,9 +67,7 @@ def test_same_seed_gives_same_result_and_reset_restarts(detector_class):
 
 
 def test_subsense_reports_missing_package_clearly():
-    try:
-        import pybgs  # noqa: F401
-    except ImportError:
+    if importlib.util.find_spec("pybgs") is None:
         with pytest.raises(ImportError, match="pybgs"):
             SuBSENSEDetector()
 

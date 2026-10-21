@@ -1,3 +1,6 @@
+"""Experiment orchestration: dataset loading, feature collection, cross-validated training and result files.
+"""
+
 from __future__ import annotations
 
 import json
@@ -19,7 +22,7 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from sklearn.preprocessing import LabelEncoder
 
 from ..config import Config
@@ -35,6 +38,7 @@ from ..evaluation.report import (
 )
 from ..experiment.collector import VideoFeatureCollector
 from ..experiment.utils import get_git_commit, get_next_run_id
+from ..features.catalogue import describe
 from ..models.imbalance import ImbalanceConfig, build_model
 from ..optional import TORCH_AVAILABLE, torch
 from ..paths import EXPERIMENTS_DIR, PROJECT_ROOT
@@ -44,10 +48,23 @@ from ..registry import build
 from ..viz.fiftyone_viz import FiftyOneVisualizer
 from ..viz.plotting import PlotManager
 
+# This is the logger of this module.
 log = logging.getLogger(__name__)
 
 
 class ExperimentRunner:
+    """Runs one configured experiment and writes the results to ``experiments/<name>/run_NNN/``.
+
+    Args:
+        config: the loaded YAML configuration.
+        experiment_name: output folder name (default ``config.experiment.name``).
+        detection_source: force the detector (``mog2`` or ground truth) whatever the config says.
+        diagnose_only: collect features and statistics but do not train.
+        visualise: write annotated videos for the first *n_visualise* videos.
+
+    The constructor creates the run folder and seeds ``random``, ``numpy`` and ``torch``.
+    """
+
     def __init__(self, config: Config, experiment_name: str = None,
                  detection_source: Optional[DetectionSource] = None,
                  diagnose_only: bool = False,
@@ -56,6 +73,7 @@ class ExperimentRunner:
         self.config = config
         self.experiment_name = experiment_name or config.experiment.name
         self.seed = config.experiment.get("seed", 42)
+        # This is True for configs that only compare existing results and do not train.
         self.is_comparison = config.get("comparison_only", False)
         self.detection_source = detection_source
         self.diagnose_only = diagnose_only
@@ -68,11 +86,15 @@ class ExperimentRunner:
             self.dataset_info = None
 
         exp_dir = EXPERIMENTS_DIR / self.experiment_name
+        # This is the folder of this run: a new run_NNN folder inside the experiment
+        # folder.
         self.run_id = get_next_run_id(exp_dir)
         self.run_dir = exp_dir / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
+        # This writes the plots of the run.
         self.plots = PlotManager(self.run_dir / "plots")
+        # This builds the FiftyOne dataset of the run.
         self.fo_visualizer = FiftyOneVisualizer(self.run_dir / "fiftyone")
 
         random.seed(self.seed)
@@ -94,6 +116,7 @@ class ExperimentRunner:
         print("=" * 70)
 
     def load_dataset(self) -> pd.DataFrame:
+        """Read ``datasetInfo.xlsx``; it needs the columns Activity, Distortion and Name of Video Series."""
         if hasattr(self.config, 'paths') and hasattr(self.config.paths, 'dataset_excel'):
             excel_path = self.config.paths.dataset_excel
         else:
@@ -111,6 +134,7 @@ class ExperimentRunner:
         return df
 
     def prepare_clip_dataset(self, df: pd.DataFrame, use_sample: bool = False) -> Dict:
+        """Video paths and encoded labels for the neural models; videos missing on disk are skipped."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
         target_col = self.config.targets[0] if self.config.targets else "activity"
@@ -138,17 +162,35 @@ class ExperimentRunner:
         return {"X": video_paths, "y": y_enc, "label_encoder": le, "classes": le.classes_}
 
     def train_neural_model(self, clip_data: Dict, target_col: str = "activity") -> Dict:
+        """Train and evaluate each neural model on one hold-out split.
+
+        When ``training.group_regex`` or ``group_map_csv`` is set, all copies of a recording stay on one side.
+        The F1, precision and recall are weighted averages, so they cannot be compared with the macro-F1 of the tabular runs.
+        """
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch not installed")
         X = clip_data["X"]
         y = clip_data["y"]
         classes = clip_data["classes"]
-        try:
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=self.config.training.test_size,
-                                                                stratify=y, random_state=self.seed)
-        except ValueError:
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=self.config.training.test_size,
-                                                                random_state=self.seed)
+        training = self.config.training
+        groups = derive_groups([Path(x).name for x in X], regex=training.get("group_regex"),
+                               map_csv=training.get("group_map_csv"))
+        if groups is not None:
+            # Keep every copy of a recording on the same side of the split.
+            splitter = GroupShuffleSplit(n_splits=1, test_size=training.test_size, random_state=self.seed)
+            train_idx, test_idx = next(splitter.split(X, y, groups))
+            X_train, X_test = [X[i] for i in train_idx], [X[i] for i in test_idx]
+            y_train, y_test = y[train_idx], y[test_idx]
+            print(f"Grouped hold-out split: {group_summary(groups)}")
+        else:
+            print("WARNING: ungrouped hold-out split. Re-encodings of one recording may sit in both "
+                  "train and test; set training.group_regex or training.group_map_csv.")
+            try:
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=training.test_size,
+                                                                    stratify=y, random_state=self.seed)
+            except ValueError:
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=training.test_size,
+                                                                    random_state=self.seed)
         results = {}
         clip_len = getattr(self.config.clip, "clip_len", 16)
         frame_size = tuple(getattr(self.config.clip, "frame_size", [112, 112]))
@@ -222,11 +264,13 @@ class ExperimentRunner:
 
         X, y_enc, le, feature_keys = self._build_matrix(
             video_features, target_col,
-            drop_prefixes=list(self.config.features.get("drop_prefixes", []) or []))
+            drop_prefixes=list(self.config.features.get("drop_prefixes", []) or []),
+            keep_prefixes=list(self.config.features.get("keep_prefixes", []) or []))
         class_names = le.classes_.tolist()
         print(f"\nFeature matrix: {X.shape[0]} videos x {X.shape[1]} features")
         print(f"Target: {target_col}")
         print(f"Class distribution:\n{pd.Series(le.inverse_transform(y_enc)).value_counts().to_string()}")
+        self._save_feature_catalogue(feature_keys, target_col)
 
         training = self.config.training
         n_folds = training.get("cv_folds", 5)
@@ -303,13 +347,24 @@ class ExperimentRunner:
                            feature_keys, len(video_features))
         return results
 
-    # ---- helpers for train_and_evaluate -----------------------------------
-
     @staticmethod
-    def _build_matrix(video_features: List[Dict], target_col: str, drop_prefixes=None):
+    def _build_matrix(video_features: List[Dict], target_col: str, drop_prefixes=None,
+                      keep_prefixes=None):
+        """Feature matrix, encoded labels, label encoder and column names for *target_col*.
+
+        Label, count and yield columns are never features. ``drop_prefixes`` removes feature families;
+        ``keep_prefixes`` keeps only the families that start with one of the prefixes. Non-finite values
+        become 0 and are counted in the console output.
+        """
         meta_keys = {"activity", "distortion", "video_name", "n_tracks", "frames_used",
-                     "track_length", "feature_count", "track_confidence", "has_trajectory"}
+                     "track_length", "feature_count", "track_confidence", "has_trajectory",
+                     "n_usable_tracks"}
         feature_keys = sorted(set().union(*(fv.keys() for fv in video_features)) - meta_keys)
+        if keep_prefixes:
+            kept = [k for k in feature_keys if k.startswith(tuple(keep_prefixes))]
+            print(f"  Feature audit: keeping only prefixes {list(keep_prefixes)}; "
+                  f"{len(kept)} of {len(feature_keys)} features remain")
+            feature_keys = kept
         if drop_prefixes:
             dropped = [k for k in feature_keys if k.startswith(tuple(drop_prefixes))]
             feature_keys = [k for k in feature_keys if k not in set(dropped)]
@@ -331,6 +386,16 @@ class ExperimentRunner:
         if isinstance(model_def, (dict, Config)):
             return model_def.get("name", ""), model_def.get("params", {}) or {}
         return model_def, {}
+
+    def _save_feature_catalogue(self, feature_keys, target_col):
+        """Write one row per feature of the matrix: its family and what it measures."""
+        rows = []
+        for key in feature_keys:
+            info = describe(key)
+            rows.append({"feature": key,
+                         "family": info.family if info else "unknown",
+                         "description": info.description if info else ""})
+        pd.DataFrame(rows).to_csv(self.run_dir / f"feature_catalogue_{target_col}.csv", index=False)
 
     def _save_importances(self, model, name, target_col, feature_keys, store):
         values = model.feature_importances_

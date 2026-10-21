@@ -33,21 +33,36 @@ video -> preprocessing -> foreground detection -> tracking -> per-track features
 Every stage is a plug-in chosen in a YAML config (`source/configs/`), so a change of detector,
 tracker, feature set or classifier is a one-line edit and never a code change.
 
+## Audit and publication notes
+
+* [docs/notes/AUDIT_REPORT.md](docs/notes/AUDIT_REPORT.md) - defects found and fixed before submission, and what must be re-run.
+* [docs/notes/PUBLICATION_STRATEGY.md](docs/notes/PUBLICATION_STRATEGY.md) - novelty, the runs a stronger paper needs, venue fit.
+* `python scripts/check_docstrings.py` - docstring coverage (enforced by a test).
+
 ## Quick start
 
-Put the dataset in `data/` (layout in [docs/howToRun.md](docs/howToRun.md)), then:
+Put the dataset in `data/` (layout in [docs/notes/howToRun.md](docs/notes/howToRun.md)), then:
 
 ```bash
-./build.sh --smoke        # Linux/macOS: every stage on a tiny sample (minutes), to check the setup
-./build.sh --workers 8    # full run (many hours); add --resume after an interruption
-build.bat --smoke         # Windows equivalent
+./scripts/build.sh --smoke                  # Linux/macOS: every stage on a tiny sample (minutes), to check the setup
+./scripts/build.sh --workers auto --resume  # full run (many hours); --resume continues after an interruption
+scripts\build.bat --smoke                   # Windows equivalent
 ```
 
 `build.sh` / `build.bat` create the virtual environment `sdr-env`, activate it, check and install
 the libraries, run all training and testing, and write a log for every step under
-`experiments/build_logs/<time>/` (with `pip freeze`, git commit and config checksums). A failing
+`docs/logs/<time>/` (with `pip freeze`, git commit and config checksums). A failing
 step does not stop the batch; every failure is listed at the end and the exit code is 1.
-`./build.sh --help` lists all stages and options; stages can run alone, e.g. `./build.sh env tests`.
+`./scripts/build.sh --help` lists all stages and options; stages can run alone, e.g. `./scripts/build.sh env tests`.
+
+### Using several cores
+
+* **Videos** are processed one per worker process: `--workers N` (or `--workers auto` for all cores
+  but one, or `experiment.n_workers` in a config). Each worker limits OpenCV and the math libraries to one thread, builds
+  its pipeline once, and the features are sorted by video name afterwards, so the result does not depend on how many workers ran.
+  This is the slow part of a run, so it is where the cores matter. The default is 1.
+* **Cross-validation** folds can be trained at the same time with `--set training.n_jobs=N` (or `build.sh --cv-jobs N`; `-1` = all cores).
+* The pure-NumPy forest (`random_forest_custom`) takes `n_jobs` to grow its trees in parallel and gives the same forest for any value.
 
 One experiment by hand:
 
@@ -123,7 +138,13 @@ video-level features.
 Sizes: 54 (trajectory only), 147 (six motion families) and 221 (everything). The multi-family
 set contains blur and exposure measures that need no track, so imaging-condition results on it
 must be read together with the feature-family ablations (`ablation_7`, `ablation_8`). Every
-feature, parameter and aggregation is listed in [docs/feature_appendix.tex](docs/feature_appendix.tex).
+feature, parameter and aggregation is listed in [docs/manuscript/feature_appendix.tex](docs/manuscript/feature_appendix.tex).
+
+To identify a column of `video_features.csv` or of an importance file, look it up in
+`source/activity_detection/features/catalogue.py` (`describe("std_dwt_entropy")` gives its family and meaning).
+Every run also writes `feature_catalogue_<target>.csv` with one row per feature of the matrix,
+`python scripts/list_features.py` writes the table of all 221 features, and a test fails if the code
+produces a feature that the catalogue does not describe.
 
 ## Classifiers and evaluation
 
@@ -159,19 +180,21 @@ weights or resampling inside the training folds only.
 | Script                                        | What it does                                                                                                                          |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `source/run.py`                               | Runs one config (or all groups / ablations / detectors); `--set`, `--workers`, `--features-csv`                                       |
-| `source/scripts/audit_configs.py`             | Proves the eight factorial cells differ only in detector, preprocessing and features                                                  |
-| `source/scripts/audit_duplicates.py`          | Finds re-encoded copies of one recording, writes `data/groups.csv`, a review listing and a metadata file with thresholds and checksum |
-| `source/scripts/factorial_analysis.py`        | 2x2x2 analysis: effect of each factor with the others fixed, with bootstrap intervals                                                 |
-| `source/scripts/mog2_threshold_sweep.py`      | `var_threshold` ablation, fixed vs adaptive MOG2, common-subset macro-F1 and per-distortion yield                                     |
-| `source/scripts/parameter_ablation.py`        | One-at-a-time ablation of every selected parameter: preprocessing, detector, adaptive MOG2, tracker, features, classifiers, imbalance |
-| `source/scripts/validate_mask_quality.py`     | Spearman correlation of the mask-quality score with agreement to ground-truth boxes, bootstrap over videos                            |
-| `source/scripts/compare_experiments.py`       | Paired bootstrap differences and McNemar tests between two runs                                                                       |
-| `source/scripts/feature_family_importance.py` | Share of classifier importance carried by each feature family                                                                         |
-| `source/scripts/verify_outputs.py`            | Checks that every required result exists, no classifier failed, and the factorial cells used the same videos                          |
-| `source/scripts/check_dataset.py`             | Checks that the dataset is in place                                                                                                   |
-| `source/scripts/collect_paper_figures.py`     | Copies the plots to `docs/images/` under the names `paper.tex` expects                                                                |
+| `scripts/audit_configs.py`             | Proves the eight factorial cells differ only in detector, preprocessing and features                                                  |
+| `scripts/audit_duplicates.py`          | Finds re-encoded copies of one recording, writes `data/groups.csv`, a review listing and a metadata file with thresholds and checksum |
+| `scripts/factorial_analysis.py`        | 2x2x2 analysis: effect of each factor with the others fixed, with bootstrap intervals                                                 |
+| `scripts/mog2_threshold_sweep.py`      | `var_threshold` ablation, fixed vs adaptive MOG2, common-subset macro-F1 and per-distortion yield                                     |
+| `scripts/parameter_ablation.py`        | One-at-a-time ablation of every selected parameter: preprocessing, detector, adaptive MOG2, tracker, features, classifiers, imbalance |
+| `scripts/validate_mask_quality.py`     | Spearman correlation of the mask-quality score with agreement to ground-truth boxes, bootstrap over videos                            |
+| `scripts/compare_experiments.py`       | Paired bootstrap differences and McNemar tests between two runs                                                                       |
+| `scripts/feature_family_importance.py` | Share of classifier importance carried by each feature family                                                                         |
+| `scripts/verify_outputs.py`            | Checks that every required result exists, no classifier failed, and the factorial cells used the same videos                          |
+| `scripts/check_dataset.py`             | Checks that the dataset is in place                                                                                                   |
+| `scripts/collect_paper_figures.py`     | Copies the plots to `docs/manuscript/images/` under the names `paper.tex` expects                                                     |
+| `scripts/list_features.py`             | Writes a table that says what every feature column is (family and description); `--csv` checks a `video_features.csv`                  |
+| `scripts/check_docstrings.py`          | Reports the docstring coverage of the package                                                                                         |
 
-Details of the experiment design and known gaps: [docs/ablation_study.md](docs/ablation_study.md).
+Details of the experiment design and known gaps: [docs/notes/ablation_study.md](docs/notes/ablation_study.md).
 
 ## What `build.sh` runs
 
@@ -201,18 +224,22 @@ runs never mix with real results.
 
 ```
 .
-├── build.sh, build.bat    environment + all training and testing
-├── source/
-│   ├── run.py             entry point
-│   ├── activity_detection/   the package (detection, tracking, features, models, evaluation)
-│   ├── configs/           YAML experiment configs (base.yaml holds every default)
-│   ├── scripts/           analysis and ablation scripts
-│   └── tests/             unit tests
-├── docs/                  paper, bibliography, feature appendix, how-to-run guide
-├── ss/                    slides
+├── source/                 the main code
+│   ├── run.py              entry point
+│   ├── activity_detection/ the package (detection, tracking, features, models, evaluation)
+│   ├── configs/            YAML experiment configs (base.yaml holds every default)
+│   └── tests/              unit tests
+├── scripts/                build.sh, build.bat and the analysis and ablation scripts
+├── docs/
+│   ├── manuscript/         the paper, bibliography and feature appendix
+│   ├── notes/              how to run, audit report, publication strategy, reviewer notes
+│   └── logs/               logs of the training runs
+├── ss/                     the presentation video and slides
 ├── requirements.txt
 └── README.md
 ```
+
+The results of a run go to `experiments/` (not tracked by git, see `.gitignore`).
 
 ## Tests and status
 

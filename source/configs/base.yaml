@@ -3,6 +3,7 @@ experiment:
   description: ""
   group: A
   seed: 42
+  n_workers: 1         # video-processing processes (a number, or auto = all cores but one)
 
 paths:
   data_dir: data

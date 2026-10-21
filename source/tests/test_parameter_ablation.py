@@ -1,19 +1,14 @@
 """Tests for the one-at-a-time parameter ablation, using a fake runner (no videos needed)."""
-import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "parameter_ablation.py"
-spec = importlib.util.spec_from_file_location("parameter_ablation", SCRIPT)
-ablation = importlib.util.module_from_spec(spec)
-sys.modules["parameter_ablation"] = ablation   # dataclasses looks the module up here
-spec.loader.exec_module(ablation)
+import parameter_ablation as ablation
 
 
 class FakeRunner:
     """Stands in for ExperimentRunner and records the config of every setting."""
+
     seen = []
     collect_calls = 0
 

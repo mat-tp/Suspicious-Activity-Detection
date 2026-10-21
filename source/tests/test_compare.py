@@ -7,16 +7,19 @@ import pytest
 from activity_detection.config import load_config
 from activity_detection.evaluation.compare import (
     compare_many,
+    Pair,
     compare_runs,
     find_run_dir,
     holm_adjust,
     load_run,
+    paired_bootstrap,
     scores,
 )
 from activity_detection.evaluation.report import (
     write_attempted_videos,
     write_predictions,
 )
+import activity_detection.experiment.runner as runner_module
 from activity_detection.experiment.runner import ExperimentRunner
 
 CLASSES = ["Pri", "Exp", "Fo"]
@@ -142,7 +145,6 @@ def test_unknown_model_is_reported(tmp_path, truth):
 
 
 def test_experiment_runner_saves_one_prediction_per_video(tmp_path, monkeypatch):
-    import activity_detection.experiment.runner as runner_module
     monkeypatch.setattr(runner_module, "EXPERIMENTS_DIR", tmp_path)
     rng = np.random.default_rng(0)
     features = []
@@ -158,3 +160,26 @@ def test_experiment_runner_saves_one_prediction_per_video(tmp_path, monkeypatch)
     saved = pd.read_csv(runner.run_dir / "predictions_distortion.csv")
     assert list(saved.columns) == ["video", "true", "knn"]
     assert len(saved) == len(features) and saved["video"].is_unique
+
+
+def test_cluster_bootstrap_gives_wider_interval_than_video_bootstrap():
+    """Copies of one recording carry the same information, so resampling recordings
+    must not give a narrower interval than resampling videos."""
+    rng = np.random.default_rng(0)
+    n_rec, copies = 40, 3
+    true_r = rng.integers(0, 2, n_rec)
+    a_r = np.where(rng.random(n_rec) < 0.7, true_r, 1 - true_r)
+    b_r = np.where(rng.random(n_rec) < 0.8, true_r, 1 - true_r)
+
+    def rep(v):
+        return np.repeat(v, copies)
+
+    groups = np.repeat(np.arange(n_rec), copies)
+    base = dict(classes=["x", "y"], true=rep(true_r), pred_a=rep(a_r), pred_b=rep(b_r), counts={})
+
+    def width(d):
+        return np.subtract(*np.percentile(d["accuracy"], [97.5, 2.5]))
+
+    plain = paired_bootstrap(Pair(**base), 500, 1)
+    clustered = paired_bootstrap(Pair(**base, groups=groups), 500, 1)
+    assert width(clustered) > width(plain) * 0.9

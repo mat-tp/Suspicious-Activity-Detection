@@ -1,0 +1,16 @@
+extends: group_i_adaptive_mog2.yaml
+
+experiment:
+  name: ablation_9_scene_shortcut_audit
+  description: >
+    Shortcut audit, not a competitor. Keeps ONLY the features that describe the scene or
+    the file rather than the motion of people: appearance statistics (app_), image-quality
+    measurements (diag_) and container metadata (frame count, duration, fps). No trajectory
+    and no optical-flow features. If this baseline predicts the ACTIVITY far above chance,
+    activities are confounded with where, with which camera or for how long they were
+    recorded, and accuracy gained by motion features must be read against it. For the
+    imaging-condition target a high score is expected (quality features measure it directly).
+  group: ABL9
+
+features:
+  keep_prefixes: [app_, diag_, meta_num_, meta_duration, meta_fps]

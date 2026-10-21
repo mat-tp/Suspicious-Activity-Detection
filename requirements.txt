@@ -1,7 +1,7 @@
 # Core
 numpy
 pandas
-opencv-python
+opencv-python>=4.8,<5   # OpenCV 5 removed cv2.HOGDescriptor, which the dense-trajectory features need
 PyYAML
 scipy
 scikit-learn

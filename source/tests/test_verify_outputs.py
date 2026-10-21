@@ -1,16 +1,9 @@
 """verify_outputs flags missing files, failed models and mismatched video universes."""
-import importlib.util
 import json
-import sys
-from pathlib import Path
 
 import pandas as pd
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "verify_outputs.py"
-spec = importlib.util.spec_from_file_location("verify_outputs", SCRIPT)
-verify_outputs = importlib.util.module_from_spec(spec)
-sys.modules["verify_outputs"] = verify_outputs
-spec.loader.exec_module(verify_outputs)
+import verify_outputs
 
 
 def make_run(root, experiment, videos, results=None, with_features=True):

@@ -1,3 +1,5 @@
+"""Matplotlib figures written by the experiment runner (skipped silently when Matplotlib is missing)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,6 +11,12 @@ from ..optional import MATPLOTLIB_AVAILABLE, plt, sns
 
 
 class PlotManager:
+    """Saves result figures into *output_dir*.
+
+    Args:
+        output_dir: folder for the PNG files (created if needed).
+    """
+
     def __init__(self, output_dir: Path):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -20,6 +28,7 @@ class PlotManager:
         return True
 
     def confusion_matrix_plot(self, cm: np.ndarray, class_names: List[str], title: str, filename: str):
+        """Save a heat-map of confusion matrix *cm* with *class_names* as ``filename``."""
         if not self._check():
             return
         fig, ax = plt.subplots(figsize=(max(6, len(class_names)), max(5, len(class_names))))
@@ -37,6 +46,7 @@ class PlotManager:
     def combined_confusion_matrices(self, cm_activity: np.ndarray, classes_activity: List[str],
                                     cm_distortion: np.ndarray, classes_distortion: List[str],
                                     title: str, filename: str):
+        """Save the activity and distortion confusion matrices side by side in one figure."""
         if not self._check():
             return
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
@@ -58,6 +68,7 @@ class PlotManager:
         print(f"  [plot] Saved: {path}")
 
     def feature_importance_plot(self, feature_names: List[str], importances: np.ndarray, title: str, filename: str, top_n: int = 20):
+        """Save a bar chart of the *top_n* largest importances."""
         if not self._check() or len(importances) != len(feature_names):
             return
         order = np.argsort(importances)[-top_n:]
@@ -76,6 +87,7 @@ class PlotManager:
         print(f"  [plot] Saved: {path}")
 
     def model_comparison_plot(self, results: Dict[str, Dict], metric: str, target: str, filename: str):
+        """Save a bar chart of *metric* for every model in *results*."""
         if not self._check():
             return
         model_names = []
@@ -102,6 +114,7 @@ class PlotManager:
         print(f"  [plot] Saved: {path}")
 
     def detector_stats_plot(self, stats_by_distortion: Dict[str, Dict], filename: str):
+        """Save a bar chart of the share of videos that produced features, per distortion type."""
         if not self._check() or not stats_by_distortion:
             return
         dist_names = list(stats_by_distortion.keys())
@@ -120,6 +133,7 @@ class PlotManager:
         print(f"  [plot] Saved: {path}")
 
     def track_length_histogram(self, all_track_lengths: List[int], title: str, filename: str):
+        """Save a histogram of track lengths (points per track)."""
         if not self._check() or not all_track_lengths:
             return
         fig, ax = plt.subplots(figsize=(7, 4))

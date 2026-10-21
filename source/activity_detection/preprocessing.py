@@ -9,7 +9,7 @@ Three preprocessors are registered:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Literal, Optional, Tuple
+from typing import Dict, Literal, Tuple
 
 import cv2
 import numpy as np
@@ -18,10 +18,31 @@ from .interfaces import Preprocessor, PreprocessResult
 from .registry import register
 
 
-# ── Distortion detection ─────────────────────────────────────────────────────
+def frame_quality_metrics(gray: np.ndarray) -> Dict[str, float]:
+    """Sharpness and brightness of one grey frame, measured before any enhancement.
+
+    Every preprocessor reports these same keys, so the ``diag_*`` features mean the same thing for all of them.
+
+    Returns:
+        A dict with ``laplacian_var`` (low = blurry), ``tenengrad`` (mean Sobel gradient),
+        ``brenner`` (mean absolute horizontal difference) and ``brightness`` (mean grey level).
+    """
+    g = gray.astype(np.float64) if gray.dtype != np.uint8 else gray
+    gx = cv2.Sobel(g, cv2.CV_64F, 1, 0)
+    gy = cv2.Sobel(g, cv2.CV_64F, 0, 1)
+    return {
+        "laplacian_var": float(cv2.Laplacian(g, cv2.CV_64F).var()),
+        "tenengrad": float(np.sqrt(gx ** 2 + gy ** 2).mean()),
+        "brenner": float(np.mean(np.abs(np.diff(g.astype(np.float64), axis=1)))) if g.shape[1] > 1 else 0.0,
+        "brightness": float(g.mean()),
+    }
+
 
 @dataclass
 class DistortionReport:
+    """Result of the per-frame distortion test: sharpness, brightness, the blurry / under- / over-exposed flags and a label.
+    """
+
     blur_score: float
     brightness: float
     is_blurry: bool
@@ -81,8 +102,6 @@ def _detect_distortion(
     )
 
 
-# ── Enhancement methods ───────────────────────────────────────────────────────
-
 def _unsharp_mask(gray: np.ndarray, sigma: float, strength: float) -> np.ndarray:
     """Adaptive unsharp mask: strength scales with local variance."""
     blurred = cv2.GaussianBlur(gray, (0, 0), sigma)
@@ -115,17 +134,16 @@ def _contrast_stretch(gray: np.ndarray) -> np.ndarray:
     return cv2.normalize(gray, None, int(p2), int(p98), cv2.NORM_MINMAX)  # type: ignore[call-overload]
 
 
-# ── Preprocessors ─────────────────────────────────────────────────────────────
-
 @register("preprocessor", "passthrough")
 class PassthroughPreprocessor(Preprocessor):
     """Convert to greyscale only — useful for debugging the raw signal."""
 
     def process(self, frame: np.ndarray) -> PreprocessResult:
+        """Greyscale conversion only (no resize, no smoothing); diagnostics are measured on that frame."""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return PreprocessResult(
             bgr=frame, gray=gray,
-            diagnostics={"enabled": False},
+            diagnostics={"enabled": False, **frame_quality_metrics(gray)},
             enhanced=False,
         )
 
@@ -145,26 +163,21 @@ class StandardPreprocessor(Preprocessor):
         self.blur_sigma = blur_sigma
 
     def process(self, frame: np.ndarray) -> PreprocessResult:
+        """Resize, grey and smooth the frame; the quality diagnostics are measured before the smoothing."""
         bgr = cv2.resize(frame, self.frame_resize)
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        diagnostics = frame_quality_metrics(gray)          # measured before smoothing
+        diagnostics["blur_score"] = diagnostics["laplacian_var"]
         gray = cv2.GaussianBlur(gray, self.blur_kernel, self.blur_sigma)
-        diagnostics = {
-            "blur_score": float(cv2.Laplacian(gray, cv2.CV_64F).var()),
-            "brightness": float(gray.mean()),
-        }
         return PreprocessResult(bgr=bgr, gray=gray, diagnostics=diagnostics, enhanced=False)
 
 
 @register("preprocessor", "distortion_aware")
 class DistortionAwarePreprocessor(Preprocessor):
-    """Standard pipeline + per-frame distortion detection and adaptive enhancement.
+    """Standard preprocessing plus a check for blur and bad exposure on every frame.
 
-    Decision logic (per frame):
-      1. Detect distortion type from the resized-but-not-yet-enhanced frame.
-      2. Apply blur enhancement if the frame is blurry.
-      3. Apply exposure enhancement if the frame is under- or over-exposed.
-      4. Optionally apply gamma correction and/or contrast stretching.
-      5. Apply Gaussian blur (same as StandardPreprocessor) last.
+    A blurry frame gets a sharpening step and an under- or over-exposed one gets an exposure fix; optional
+    gamma correction and contrast stretching follow, and the Gaussian blur comes last.
     """
 
     def __init__(
@@ -208,9 +221,8 @@ class DistortionAwarePreprocessor(Preprocessor):
             clipLimit=clahe_clip_limit,
             tileGridSize=tuple(clahe_tile_grid),
         )
+        # These are the settings of the bilateral filter that is used to fix exposure.
         self._bilateral = {"d": bilateral_d, "sc": bilateral_sigma_color, "ss": bilateral_sigma_space}
-
-    # ── Enhancement helpers (each returns a modified copy of gray) ───────────
 
     def _enhance_blur(self, gray: np.ndarray) -> np.ndarray:
         if self.enhancement_for_blur == "unsharp_mask":
@@ -227,11 +239,14 @@ class DistortionAwarePreprocessor(Preprocessor):
             return cv2.bilateralFilter(gray, b["d"], b["sc"], b["ss"])
         return gray
 
-    # ── Main process method ───────────────────────────────────────────────────
-
     def process(self, frame: np.ndarray) -> PreprocessResult:
+        """Resize, grey, check the frame for blur and exposure problems, enhance it, then smooth it.
+
+        The diagnostics are measured before the enhancement, so they describe the recording and not the processed image.
+        """
         bgr = cv2.resize(frame, self.frame_resize)
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        quality = frame_quality_metrics(gray)              # before any enhancement
 
         report = _detect_distortion(
             gray,
@@ -262,6 +277,7 @@ class DistortionAwarePreprocessor(Preprocessor):
         gray = cv2.GaussianBlur(gray, self.blur_kernel, self.blur_sigma)
 
         diagnostics: Dict[str, object] = {
+            **quality,
             "blur_score": report.blur_score,
             "brightness": report.brightness,
             "distortion_type": report.distortion_type,

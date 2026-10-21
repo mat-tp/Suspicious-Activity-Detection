@@ -1,3 +1,10 @@
+"""Reads the AD-SVD spreadsheet and summarises resolution, frame rate and duration.
+
+Column names are guessed and missing values fall back to defaults (30 fps, 1920x956), so check
+``resolution_stats`` and ``fps_stats`` against the real files before quoting them. The ``justify_*``
+methods write explanatory paragraphs for reports; their references are not checked against the data.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -8,18 +15,30 @@ from typing import Any, Dict
 import numpy as np
 import pandas as pd
 
+# This is the logger of this module.
 log = logging.getLogger(__name__)
 
 
 class DatasetInfoHandler:
+    """Per-video metadata and summary statistics from the dataset's Excel sheet.
+
+    Args:
+        dataset_excel_path: path of ``datasetInfo.xlsx``. A missing file only logs a warning and leaves the statistics empty.
+    """
+
     def __init__(self, dataset_excel_path: str):
         self.dataset_excel_path = Path(dataset_excel_path)
+        # This is the spreadsheet, filled by _load_and_analyze.
         self.df = None
+        # This is the resolution, frame rate and duration of each video, by video name.
         self.video_metadata = {}
+        # These are the summary numbers of the resolutions, frame rates and durations.
         self.resolution_stats = {}
         self.fps_stats = {}
         self.duration_stats = {}
+        # This is the list of distortion names found in the spreadsheet.
         self.distortion_types = []
+        # This is the encoding quality levels, from high to low, plus unknown.
         self.quality_levels = ["HQ", "MQ", "LQ", "unknown"]
         self._load_and_analyze()
 
@@ -104,6 +123,7 @@ class DatasetInfoHandler:
         return self.video_metadata.get(video_name, {})
 
     def justify_resize_dimensions(self, target_size=(640, 480)) -> str:
+        """Paragraph that explains the processing resolution *target_size* from the dataset's resolutions."""
         if not self.resolution_stats:
             return "No resolution data available"
         stats = self.resolution_stats
@@ -135,6 +155,7 @@ Multiple resolutions detected - uniform resize ensures:
         return justification
 
     def justify_min_trajectory_length(self, min_length=30) -> str:
+        """Paragraph that relates *min_length* frames to seconds of motion at the average frame rate."""
         if not self.fps_stats or not hasattr(self, 'duration_stats'):
             return "Insufficient data"
         avg_fps = self.fps_stats.get('mean', 30)
@@ -156,6 +177,7 @@ Why {min_length} frames:
         return justification
 
     def get_adaptive_frame_sampling(self, video_name: str, target_frames: int = 100) -> int:
+        """Frame step that reduces *video_name* to about *target_frames* frames (1 = keep all)."""
         info = self.get_video_info(video_name)
         if info and info.get("frame_count", 0) > target_frames:
             return max(1, info["frame_count"] // target_frames)

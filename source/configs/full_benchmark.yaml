@@ -1,4 +1,3 @@
-# =============================================================================
 # full_benchmark.yaml  —  Complete benchmark across all Groups A–G.
 #
 # Usage:
@@ -15,7 +14,6 @@
 #     sed -i "s/seed: 42/seed: ${SEED}/" full_benchmark_s${SEED}.yaml
 #     python run.py --config full_benchmark_s${SEED} --target both
 #   done
-# =============================================================================
 
 extends: base.yaml
 
@@ -56,7 +54,6 @@ features:
 # data_path: clip and run via group_c_neural.yaml.
 models:
   active:
-    # ── Classical ─────────────────────────────────────────────────────
     - name: random_forest_sklearn
       params:
         n_estimators: 200
@@ -80,7 +77,6 @@ models:
         n_neighbors: 5
         metric: euclidean
 
-    # ── Boosting ──────────────────────────────────────────────────────
     - name: lightgbm
       params:
         n_estimators: 200

@@ -1,17 +1,21 @@
-"""Tests for yield accounting, grouped cross-validation, feature-family ablation, track frame indices and frame-rate handling."""
+"""Tests for yield accounting, grouped cross-validation, feature families, frame indices and frame rates."""
+import cv2
 import numpy as np
 import pytest
 
+import activity_detection.evaluation.cross_validation as cv
+from activity_detection.config import Config
+from activity_detection.detection.utils import make_bbox
 from activity_detection.evaluation.cross_validation import cross_validate_model
 from activity_detection.evaluation.groups import derive_groups
 from activity_detection.experiment.runner import ExperimentRunner
 from activity_detection.features.interaction import InteractionFeatures
+from activity_detection.features.track_features import safe_kurtosis, safe_skew
 from activity_detection.models.imbalance import ImbalanceConfig, build_model
+from activity_detection.pipeline.builder import PipelineBuilder
+from activity_detection.pipeline.runner import PipelineRunner
 from activity_detection.tracking.iou_hungarian import IoUHungarianTracker
-from activity_detection.detection.utils import make_bbox
 
-
-# ---- grouped cross-validation ------------------------------------------------
 
 def test_derive_groups_from_regex():
     names = ["scene1_Exp_q50.avi", "scene1_Fo_q75.avi", "scene2_Exp_q50.avi"]
@@ -38,7 +42,6 @@ def test_grouped_cv_never_splits_a_group():
                         ImbalanceConfig.from_config(None), 0)
     seen = {}
 
-    import activity_detection.evaluation.cross_validation as cv
     original = cv._split
 
     def spy(X_, y_, g_, n_splits, seed):
@@ -71,8 +74,6 @@ def test_duplicates_inflate_ungrouped_cv_but_not_grouped():
     assert grouped["pooled"]["accuracy"] < 0.7
 
 
-# ---- feature-family ablation --------------------------------------------------
-
 def test_drop_prefixes_removes_families():
     fvs = [{"video_name": "a", "activity": "x", "distortion": "d",
             "diag_laplacian_mean": 1.0, "meta_fps": 10.0, "app_lbp_mean_0": 0.1,
@@ -85,8 +86,6 @@ def test_drop_prefixes_removes_families():
     _, _, _, keys_all = ExperimentRunner._build_matrix(fvs, "activity")
     assert "has_trajectory" not in keys_all and "n_tracks" not in keys_all
 
-
-# ---- tracker frame indices and interaction alignment ---------------------------
 
 def _det(x, y, s=40):
     return make_bbox(x, y, s, s)
@@ -123,10 +122,7 @@ def test_interaction_feature_names_match_output():
     assert set(out) == set(f.feature_names())
 
 
-# ---- end to end on a synthetic video -----------------------------------------
-
 def _write_video(path, n=60, fps=10.0, size=(160, 120)):
-    import cv2
     w = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), fps, size)
     assert w.isOpened()
     rng = np.random.default_rng(0)
@@ -142,9 +138,6 @@ def _write_video(path, n=60, fps=10.0, size=(160, 120)):
 
 
 def _runner(tmp_path, **kw):
-    from activity_detection.config import Config
-    from activity_detection.pipeline.builder import PipelineBuilder
-    from activity_detection.pipeline.runner import PipelineRunner
     cfg = Config({
         "preprocessing": {"type": "standard", "frame_resize": [160, 120], "blur_kernel": [5, 5], "blur_sigma": 0},
         "detection": {"type": "mog2", "mog2": {"history": 10, "var_threshold": 16, "detect_shadows": False},
@@ -182,7 +175,18 @@ def test_speed_uses_effective_fps_under_frame_sampling(tmp_path):
 
 def test_constant_speed_track_gives_finite_shape_statistics():
     """scipy returns NaN for skew/kurtosis of constant data; SVM and KNN cannot take NaN."""
-    from activity_detection.features.track_features import safe_kurtosis, safe_skew
     assert safe_skew([2.0] * 8) == 0.0 and safe_kurtosis([2.0] * 8) == 0.0
     assert safe_skew([1.0, 2.0]) == 0.0
     assert safe_skew([1.0, 2.0, 9.0, 3.0]) != 0.0
+
+
+def test_keep_prefixes_keeps_only_the_named_families():
+    fvs = [{"activity": "a", "distortion": "x", "video_name": "v", "app_mean": 1.0,
+            "diag_laplacian_mean": 2.0, "meta_fps": 10.0, "traj_speed_mean": 3.0},
+           {"activity": "b", "distortion": "y", "video_name": "w", "app_mean": 4.0,
+            "diag_laplacian_mean": 5.0, "meta_fps": 10.0, "traj_speed_mean": 6.0}]
+    _, _, _, keys = ExperimentRunner._build_matrix(fvs, "activity", keep_prefixes=["app_", "diag_"])
+    assert keys == ["app_mean", "diag_laplacian_mean"]
+    _, _, _, keys = ExperimentRunner._build_matrix(fvs, "activity", keep_prefixes=["app_", "meta_"],
+                                                   drop_prefixes=["meta_fps"])
+    assert keys == ["app_mean"]

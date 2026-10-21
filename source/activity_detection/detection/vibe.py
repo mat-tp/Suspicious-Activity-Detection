@@ -1,13 +1,9 @@
 """ViBe background subtraction (Barnich and Van Droogenbroeck, 2011).
 
-Each pixel keeps `n_samples` past values. A new value is background if at least
-`min_matches` stored samples are within `radius` of it. Background pixels
-randomly overwrite one of their own samples, and one sample of a random
-neighbour, with probability 1/subsampling. There is no learning-rate schedule,
-so the model reacts to scene change through this random replacement only.
-
-This is a NumPy implementation of the published algorithm on grey frames, using
-the default parameters of the original ViBe publication (N=20, R=20, #min=2, phi=16).
+Each pixel keeps ``n_samples`` past values and a new value is background if at least ``min_matches``
+of them are within ``radius``. Background pixels overwrite one of their own samples, and one of a random
+neighbour, with probability 1/subsampling. This is a NumPy version on grey frames with the default
+parameters of the paper (N=20, R=20, #min=2, phi=16).
 """
 from __future__ import annotations
 
@@ -29,6 +25,17 @@ def shifted(image: np.ndarray, dy: int, dx: int) -> np.ndarray:
 
 @register("detector", "vibe")
 class ViBeDetector(BackgroundModelDetector):
+    """ViBe background model.
+
+    Args:
+        n_samples: stored samples per pixel.
+        radius: largest grey-level distance for a sample to match.
+        min_matches: matches needed for a pixel to be background.
+        subsampling: a background pixel updates the model with probability 1/subsampling.
+        seed: seed of the random replacement.
+
+    The mask-cleaning options are those of ``BackgroundModelDetector``.
+    """
 
     def __init__(self, n_samples: int = 20, radius: float = 20, min_matches: int = 2,
                  subsampling: int = 16, seed: int = 0, **post):
@@ -41,6 +48,7 @@ class ViBeDetector(BackgroundModelDetector):
         self.reset()
 
     def reset(self) -> None:
+        """Re-seed the random generator and drop the stored samples."""
         self.rng = np.random.default_rng(self.seed)
         self.samples = None          # (n_samples, H, W)
 
@@ -54,6 +62,7 @@ class ViBeDetector(BackgroundModelDetector):
         self.samples = np.stack(layers).astype(np.int16)
 
     def segment(self, gray: np.ndarray) -> np.ndarray:
+        """Boolean foreground mask of *gray*; the first frame sets up the model and gives an empty mask."""
         if self.samples is None:
             self._initialise(gray)
             return np.zeros(gray.shape, dtype=bool)

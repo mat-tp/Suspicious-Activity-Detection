@@ -1,27 +1,14 @@
-"""Confidence-driven adaptive MOG2 detector.
+"""MOG2 whose threshold is relaxed only when its own output looks bad.
 
-Plain MOG2 uses one fixed variance threshold. Under blur or bad exposure that
-threshold often gives an empty or noisy mask. This detector watches its own
-output and relaxes the threshold only when the output looks bad.
+Plain MOG2 uses one variance threshold, which under blur or bad exposure often gives an empty or noisy
+mask. For every frame this detector segments with the normal threshold and scores the mask from 0 to 1.
+The score is blended with a running track quality from the tracker, ``w * mask + (1 - w) * track``. If the
+result is below ``q`` the threshold is lowered, the frame is segmented again and the new mask is kept
+only if it scores higher.
 
-For every frame:
-
-1. Segment with the normal threshold and score the mask (0 to 1).
-2. Blend that score with a running "track quality" from the tracker:
-       combined = w * mask_quality + (1 - w) * track_quality
-3. If combined >= q, keep the normal result.
-4. Otherwise lower the threshold in proportion to how bad the score is,
-   segment again, and keep the new mask only if it scores higher.
-
-The background model is updated exactly once per frame, by the normal call.
-The relaxed segmentation is a second look at the same frame with learning rate
-0, so it does not update the model. Because of this, frames that are not
-adapted give exactly the same result as plain MOG2. Set update_once=False to
-get the older behaviour, where the second segmentation also updated the model.
-
-Parameter symbols:
-    q    quality_threshold        w    mask_weight
-    tau_r  relaxed_var_threshold  tau_min  threshold_floor
+The background model is updated once per frame, by the normal call. The second segmentation uses
+learning rate 0, so frames that are not adapted give exactly the same result as plain MOG2
+(``update_once=False`` brings back the older double update).
 """
 from __future__ import annotations
 
@@ -35,16 +22,35 @@ from ..registry import register
 from .mog2 import MOG2Detector
 from .utils import make_bbox
 
-# Mask-quality scoring constants (see _score_mask)
-COVERAGE_LOW = 0.0005    # below this fraction of foreground pixels the mask is empty
-COVERAGE_HIGH = 0.25     # above this the background model has collapsed
-COVERAGE_TARGET = 0.02   # coverage that scores best
-FRAG_MAX = 30            # more blobs than this counts as fragmented
-BLOB_SIZE_REL = 0.002    # median blob area / frame area that scores well
+# This is the share of the frame in foreground below which the mask counts as empty.
+COVERAGE_LOW = 0.0005
+# This is the share of the frame in foreground above which the background model counts as
+# collapsed.
+COVERAGE_HIGH = 0.25
+# This is the share of the frame in foreground that scores best.
+COVERAGE_TARGET = 0.02
+# This is the number of blobs above which the mask counts as fragmented.
+FRAG_MAX = 30
+# This is the median blob area over the frame area that scores well.
+BLOB_SIZE_REL = 0.002
 
 
 @register("detector", "adaptive_mog2")
 class AdaptiveMOG2Detector(MOG2Detector):
+    """MOG2 with a per-frame, quality-guided threshold (see the module docstring).
+
+    Args:
+        relaxed_var_threshold: the lower threshold tried when the quality is low.
+        quality_threshold: combined quality below which the frame is segmented again.
+        mask_weight: weight of the mask score against the track score.
+        threshold_floor: the threshold is never lowered below this.
+        min_track_len: track length (points) at which the length score saturates.
+        ema_alpha: smoothing of the track-quality estimate (higher = slower).
+        update_once: update the background once per frame (recommended).
+        log_decisions: keep a per-frame record in ``decisions``.
+
+    The other arguments are those of ``MOG2Detector``.
+    """
 
     def __init__(self, history: int = 20, var_threshold: float = 16,
                  detect_shadows: bool = True,
@@ -58,6 +64,7 @@ class AdaptiveMOG2Detector(MOG2Detector):
                  ema_alpha: float = 0.8,
                  update_once: bool = True,
                  log_decisions: bool = False):
+        """Create the detector (see the class docstring for the arguments)."""
         super().__init__(history=history, var_threshold=var_threshold,
                          detect_shadows=detect_shadows,
                          morph_close_iter=morph_close_iter,
@@ -73,8 +80,6 @@ class AdaptiveMOG2Detector(MOG2Detector):
         self.log_decisions = log_decisions
         self._start_video()
 
-    # ---- per-video state --------------------------------------------------
-
     def _start_video(self) -> None:
         self._track_quality = 1.0           # optimistic until the tracker reports
         self._frames_seen = 0
@@ -84,6 +89,7 @@ class AdaptiveMOG2Detector(MOG2Detector):
         self.decisions: List[Dict[str, Any]] = []   # filled only if log_decisions
 
     def reset(self) -> None:
+        """Clear the background model and all per-video statistics before a new video."""
         super().reset()
         self._start_video()
 
@@ -99,8 +105,6 @@ class AdaptiveMOG2Detector(MOG2Detector):
             "rerun_accept_rate": self._totals["accepted"] / triggered,
             "n_frames": float(self._totals["frames"]),
         }
-
-    # ---- tracker feedback -------------------------------------------------
 
     def feedback(self, tracks: List[Track]) -> None:
         """Update the track-quality estimate. Call after tracker.update().
@@ -120,8 +124,6 @@ class AdaptiveMOG2Detector(MOG2Detector):
             raw = 0.0
         self._track_quality = (self.ema_alpha * self._track_quality
                                + (1.0 - self.ema_alpha) * raw)
-
-    # ---- mask scoring -----------------------------------------------------
 
     def _score_mask(self, mask: np.ndarray, contours) -> float:
         """Score a foreground mask from 0 (useless) to 1 (good).
@@ -144,10 +146,8 @@ class AdaptiveMOG2Detector(MOG2Detector):
         size_score = np.tanh(np.median(areas) / mask.size / BLOB_SIZE_REL)
         return float(coverage_score * frag_score * size_score)
 
-    # ---- segmentation -----------------------------------------------------
-
     def _segment(self, frame: np.ndarray, threshold: float, learning_rate: float):
-        """Run MOG2 once and return (mask, boxes)."""
+        """Run MOG2 once at *threshold* and return (cleaned mask, contours, boxes)."""
         self.mog2.setVarThreshold(threshold)
         mask = self.clean_mask(self.mog2.apply(frame, learningRate=learning_rate))
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -165,6 +165,11 @@ class AdaptiveMOG2Detector(MOG2Detector):
         return float(np.clip(t, self.threshold_floor, self.var_threshold))
 
     def detect(self, frame: np.ndarray) -> List[BBox]:
+        """Boxes for *frame* using the confidence-driven rule.
+
+        Updates the background model once and records per-frame diagnostics
+        (see ``get_diagnostics``).
+        """
         # Step 1: the normal MOG2 call. This is the one and only model update,
         # so the nominal mask is exactly what plain MOG2 would produce.
         mask, contours, boxes = self._segment(frame, self.var_threshold, -1.0)

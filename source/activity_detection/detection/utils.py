@@ -1,3 +1,5 @@
+"""Helpers shared by all detectors: box construction, grey conversion and mask cleaning."""
+
 from __future__ import annotations
 
 import cv2
@@ -6,10 +8,17 @@ from scipy.ndimage import binary_closing, binary_opening, generate_binary_struct
 
 from ..interfaces import BBox
 
+# This is the 3x3 structuring element (all eight neighbours) that connected-component labelling
+# uses to join pixels.
 STRUCT = generate_binary_structure(2, 2)
 
 
 def make_bbox(x: int, y: int, w: int, h: int) -> BBox:
+    """Build the box dict used throughout the pipeline from top-left corner and size.
+
+    Keys: ``x, y, w, h``, centre ``cx, cy`` (integer, centre of the box), ``centroid`` = ``(cx, cy)``
+    and ``area`` = ``w * h`` (box area, not contour area).
+    """
     cx = int(x + w // 2)
     cy = int(y + h // 2)
     return {"x": int(x), "y": int(y), "w": int(w), "h": int(h), "cx": cx, "cy": cy, "centroid": (cx, cy), "area": int(w * h)}

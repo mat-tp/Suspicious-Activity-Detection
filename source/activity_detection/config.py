@@ -1,3 +1,5 @@
+"""YAML configuration: loading with ``extends`` inheritance, path resolution and attribute-style access."""
+
 from __future__ import annotations
 
 import copy
@@ -9,10 +11,20 @@ import yaml
 
 from .paths import CONFIGS_DIR, PROJECT_ROOT
 
+# This is the logger of this module.
 log = logging.getLogger(__name__)
 
 
 class Config:
+    """Read-only wrapper that gives nested dicts attribute access (``cfg.tracking.max_disappeared``).
+
+    Use ``cfg.get("key", default)`` for optional keys and ``cfg.to_dict()`` to get plain dicts back. A key
+    named like a method (``get``, ``keys``, ``items``, ``to_dict``) would hide that method.
+
+    Args:
+        data: nested dict as loaded from YAML.
+    """
+
     def __init__(self, data: Dict[str, Any]):
         self._data = data
         for key, value in data.items():
@@ -42,6 +54,7 @@ class Config:
         return self._data.items()
 
     def to_dict(self) -> Dict[str, Any]:
+        """The configuration as plain nested dicts and lists (for saving or passing as ``**kwargs``)."""
         def unwrap(v):
             if isinstance(v, Config):
                 return {k: unwrap(val) for k, val in v._data.items()}
@@ -134,7 +147,6 @@ def parse_set_overrides(assignments) -> dict:
 
     Values are parsed as YAML scalars/lists, so numbers, booleans, null and [1, 2] all work.
     """
-    import yaml
     overrides: dict = {}
     for assignment in assignments or []:
         if "=" not in assignment:

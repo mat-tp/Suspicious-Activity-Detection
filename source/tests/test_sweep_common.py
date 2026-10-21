@@ -1,13 +1,10 @@
 """Feature caching in the sweep helpers: the second target must not reprocess videos."""
-import sys
 from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import sweep_common  # noqa: E402
-
-from activity_detection.config import load_config  # noqa: E402
+import sweep_common
+from activity_detection.config import load_config
 
 
 class CountingRunner:
@@ -33,7 +30,8 @@ def test_second_call_with_same_pipeline_reuses_features(tmp_path, monkeypatch):
     CountingRunner.collected = 0
     config = load_config("group_a_classical")
     first_dir, second_dir = tmp_path / "run1", tmp_path / "run2"
-    first_dir.mkdir(); second_dir.mkdir()
+    first_dir.mkdir()
+    second_dir.mkdir()
 
     sweep_common.collect_features_cached(CountingRunner(first_dir), CountingRunner, config, [], False)
     second = sweep_common.collect_features_cached(CountingRunner(second_dir), CountingRunner, config, [], False)

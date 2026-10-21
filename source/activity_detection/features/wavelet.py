@@ -1,3 +1,5 @@
+"""Wavelet energy descriptors of a track's speed signal."""
+
 from __future__ import annotations
 
 from typing import List, Optional
@@ -11,6 +13,18 @@ from ..registry import register
 
 @register("feature", "wavelet")
 class WaveletFeatures(FeatureExtractor):
+    """Wavelet energy of the speed-over-time signal of a track.
+
+    The speed is padded to a power-of-two length and decomposed with ``pywt.wavedec``. The output is the
+    energy of the approximation and of detail levels 1-3, their total, and the entropy of the energy
+    distribution. Needs PyWavelets and returns ``None`` without it.
+
+    Args:
+        wavelet: wavelet name, e.g. ``"db4"``.
+        level: decomposition depth.
+        min_trajectory_len: shorter tracks return ``None``.
+    """
+
     def __init__(self, wavelet="db4", level=3, min_trajectory_len=30):
         self.wavelet = wavelet
         self.level = level
@@ -21,6 +35,10 @@ class WaveletFeatures(FeatureExtractor):
                 "dwt_energy_detail3", "dwt_energy_total", "dwt_entropy"]
 
     def extract_track(self, track: Track, **context) -> Optional[FeatureDict]:
+        """Energy and entropy of the speed signal of one track; ``None`` if it is too short or PyWavelets is missing.
+
+        One frame is assumed per trajectory step (see ``track_features`` for the caveat about missed frames).
+        """
         if not PYWAVELETS_AVAILABLE:
             return None
         traj = np.array(track["trajectory"], dtype=float)
@@ -35,7 +53,8 @@ class WaveletFeatures(FeatureExtractor):
         n = len(speeds)
         pad_len = 2 ** int(np.ceil(np.log2(max(n, 8)))) - n
         if pad_len > 0:
-            speeds = np.pad(speeds, (0, pad_len), mode="reflect")
+            # "reflect" needs pad_len < n; very short signals are padded with their edge value.
+            speeds = np.pad(speeds, (0, pad_len), mode="reflect" if pad_len < n else "edge")
         try:
             coeffs = pywt.wavedec(speeds, self.wavelet, level=self.level)
         except Exception:

@@ -1,0 +1,71 @@
+%adjust to UJ colours
+%%%%%%%%%%%%%%%%%%
+\definecolor{ujorange}{HTML}{E35205}
+\definecolor{ujyellow}{HTML}{E2B911}
+\definecolor{ujpurple}{HTML}{2E1A47}
+
+\useinnertheme{rounded}
+\useoutertheme{miniframes}
+	
+  \setbeamertemplate{footline}
+  {%
+    \begin{beamercolorbox}[colsep=1.5pt]{upper separation line foot}
+    \end{beamercolorbox}
+    \begin{beamercolorbox}[ht=2.5ex,dp=1.125ex,%
+      leftskip=.3cm,rightskip=.3cm plus1fil]{title in head/foot}%
+      \leavevmode{\usebeamerfont{title in head/foot}\insertshorttitle}%
+      \hfill%
+      {\usebeamerfont{institute in head/foot}\usebeamercolor[fg]{institute in head/foot}\insertframenumber/\inserttotalframenumber}%
+      \hfill%
+      {\usebeamerfont{institute in head/foot}\usebeamercolor[fg]{institute in head/foot}\insertshortinstitute}%
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[colsep=1.5pt]{lower separation line foot}
+    \end{beamercolorbox}
+  }
+
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{sections/subsections in toc}[square]
+\setbeamertemplate{itemize items}[square]
+\setbeamertemplate{enumerate items}[square]
+
+\setbeamercolor*{palette primary}{use=structure,fg=white,bg=ujorange}
+\setbeamercolor*{palette secondary}{use=structure,fg=white,bg=ujpurple}
+\setbeamercolor*{palette tertiary}{use=structure,fg=white,bg=ujpurple}
+\setbeamercolor*{palette quaternary}{fg=white,bg=black}
+
+\setbeamercolor*{block title example}{fg=white, bg=ujorange}
+\setbeamercolor*{block body example}{fg=black, bg=ujorange!15!white}
+
+\setbeamercolor*{titlelike}{parent=palette primary}
+
+\setbeamercolor*{itemize item}{fg=ujorange}
+\setbeamercolor*{itemize subitem}{fg=ujpurple}
+\setbeamercolor*{itemize subsubitem}{fg=black}
+
+\setbeamercolor*{caption name}{fg=ujorange}
+
+\setbeamercolor*{section in toc}{fg=black}
+
+\setbeamercolor*{enumerate item}{fg=ujorange}
+\setbeamercolor*{enumerate subitem}{fg=ujpurple}
+\setbeamercolor*{enumerate subsubitem}{fg=black}
+
+%Set the colours for the squares, balls, triangles
+\setbeamercolor*{item projected}{fg=white, bg=black}
+\setbeamercolor*{subitem projected}{fg=white, bg=black}
+\setbeamercolor*{subsubitem projected}{fg=white, bg=black}
+
+
+\def\slideseparator#1{
+{
+\usebackgroundtemplate{\includegraphics[width=\paperwidth]{MidCover.jpg}}
+\begin{frame}
+\vspace*{5.5cm}
+\begin{turn}{8}
+\Large{#1}
+\end{turn}
+ \end{frame}
+}
+}
+
+%%%%%%%%%%%%%%%%%%

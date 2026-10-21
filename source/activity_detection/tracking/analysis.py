@@ -1,3 +1,5 @@
+"""Descriptive statistics of the tracks of one video (used for reporting, not for classification)."""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -8,8 +10,15 @@ from ..interfaces import Track
 
 
 class TrackerAnalyzer:
+    """Summaries of how well a tracker did: track-length distribution, coverage and continuity."""
+
     @staticmethod
     def compute_tracker_metrics(tracks: List[Track], total_frames: int) -> Dict[str, Any]:
+        """Track-length statistics, coverage, tracks per frame and the number of tracks of at least 15/30/45/60/90 points.
+
+        ``tracks_with_gaps`` counts tracks unmatched at the end of the video, so it understates mid-video gaps.
+        Returns ``{"error": ...}`` when there are no tracks.
+        """
         if not tracks:
             return {"error": "No tracks available"}
         track_lengths = [len(t["trajectory"]) for t in tracks]
@@ -37,6 +46,8 @@ class TrackerAnalyzer:
 
     @staticmethod
     def justify_min_trajectory_length(track_lengths: List[int]) -> Dict[str, Any]:
+        """Share of tracks kept at each minimum length from 5 to 100; recommends the first of 30/45/60 that keeps 80%.
+        """
         if not track_lengths:
             return {"error": "No track lengths available"}
         justification = {}
@@ -47,11 +58,11 @@ class TrackerAnalyzer:
         thresholds = range(5, 101, 5)
         retention_data = {}
         for thresh in thresholds:
-            retained = sum(1 for l in track_lengths if l >= thresh)
+            retained = sum(1 for length in track_lengths if length >= thresh)
             retention_data[str(thresh)] = {
                 "retained_tracks": retained,
                 "retention_rate": (retained / total_tracks * 100 if total_tracks > 0 else 0.0),
-                "mean_length_retained": (float(np.mean([l for l in track_lengths if l >= thresh])) if retained > 0 else 0.0),
+                "mean_length_retained": (float(np.mean([length for length in track_lengths if length >= thresh])) if retained > 0 else 0.0),
             }
         justification["retention_by_threshold"] = retention_data
         for thresh in [30, 45, 60]:

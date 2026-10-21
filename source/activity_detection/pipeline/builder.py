@@ -7,6 +7,7 @@ runner needs to repeat that logic.
 """
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from typing import List, Optional
 
@@ -16,18 +17,26 @@ from ..interfaces import Detector, FeatureExtractor, Preprocessor, Tracker
 from ..registry import build, is_registered
 from ..tracking.tfcr import TFCRTracker
 
+# This is the logger of this module.
+log = logging.getLogger(__name__)
+
 
 class DetectionSource(Enum):
+    """Choice of detector that ``--detection-source`` can force: plain MOG2 or the ground-truth boxes."""
+
     MOG2 = "mog2"
     GROUND_TRUTH = "ground_truth"
 
 
 class PipelineBuilder:
-
-    # ── Preprocessor ──────────────────────────────────────────────────────────
+    """Static factory methods that turn the sections of a ``Config`` into pipeline components."""
 
     @staticmethod
     def build_preprocessor(cfg) -> Preprocessor:
+        """Preprocessor from ``cfg.preprocessing``.
+
+        Disabled preprocessing gives ``passthrough``; type ``distortion_aware`` with ``distortion_aware: false`` silently becomes ``standard`` (the flag wins).
+        """
         pre = cfg.preprocessing
         if not pre.get("enabled", True):
             return build("preprocessor", "passthrough")
@@ -72,12 +81,11 @@ class PipelineBuilder:
 
         raise ValueError(f"Unknown preprocessor type: {ptype!r}")
 
-    # ── Detector ──────────────────────────────────────────────────────────────
-
     @staticmethod
     def build_detector(
         cfg, detection_source: Optional[DetectionSource] = None
     ) -> Detector:
+        """Detector from ``cfg.detection`` (or from *detection_source* when the command line overrides it)."""
         dtype = detection_source.value if detection_source else cfg.detection.type
 
         morph = dict(
@@ -130,14 +138,19 @@ class PipelineBuilder:
 
         raise ValueError(f"Unknown detector type: {dtype!r}")
 
-    # ── Tracker ───────────────────────────────────────────────────────────────
-
     @staticmethod
     def build_tracker(cfg) -> Tracker:
+        """Tracker from ``cfg.tracking``.
+
+        ``tracking.keep_finished_tracks`` (default true) controls whether tracks retired mid-video are still passed to feature extraction; set it to false to reproduce the legacy behaviour.
+        """
         ttype = cfg.tracking.type
         common = dict(
             max_disappeared=cfg.tracking.max_disappeared,
             max_trajectory_len=cfg.tracking.max_trajectory_len,
+            # True (default): tracks retired mid-video still reach feature extraction.
+            # False reproduces the legacy behaviour (only tracks alive at the last frame).
+            keep_finished_tracks=cfg.tracking.get("keep_finished_tracks", True),
         )
 
         if ttype == "centroid":
@@ -174,8 +187,6 @@ class PipelineBuilder:
 
         raise ValueError(f"Unknown tracker type: {ttype!r}")
 
-    # ── Feature extractors ────────────────────────────────────────────────────
-
     # Modules that accept min_trajectory_len as a constructor argument.
     _MIN_LEN_MODULES = frozenset({"trajectory", "wavelet", "interaction", "dense_trajectories"})
 
@@ -193,10 +204,7 @@ class PipelineBuilder:
 
         for mod_name in cfg.features.get("modules", []):
             if not is_registered("feature", mod_name):
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Feature module %r not registered — skipping", mod_name
-                )
+                log.warning("Feature module %r not registered, skipping it", mod_name)
                 continue
             kwargs = {"min_trajectory_len": min_len} if mod_name in cls._MIN_LEN_MODULES else {}
             # Optional per-module constructor arguments from features.module_params,
@@ -216,13 +224,9 @@ class PipelineBuilder:
 
         return extractors
 
-    # ── Optical flow ──────────────────────────────────────────────────────────
-
     @staticmethod
     def build_optical_flow(cfg) -> OpticalFlowEstimator:
         return OpticalFlowEstimator.from_config(cfg)
-
-    # ── Build everything at once ──────────────────────────────────────────────
 
     @classmethod
     def build_all(cls, cfg, detection_source: Optional[DetectionSource] = None):

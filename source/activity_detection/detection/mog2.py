@@ -1,3 +1,5 @@
+"""MOG2 background-subtraction detector (the baseline of the study)."""
+
 from __future__ import annotations
 
 from typing import List
@@ -13,44 +15,30 @@ from ..registry import register
 
 @register("detector", "mog2")
 class MOG2Detector(Detector):
+    """MOG2 background subtraction followed by mask cleaning and box extraction.
+
+    Per frame: OpenCV MOG2, keep sure-foreground pixels (value >= 200), close then open the mask, and make
+    one box per contour of at least ``min_contour_area`` pixels.
+
+    Args:
+        history: number of frames that define the background model.
+        var_threshold: squared Mahalanobis distance above which a pixel is foreground. 16 (4 sigma) is the
+            value of Zivkovic and van der Heijden (2006) and OpenCV's default; justify any other value with
+            ``scripts/mog2_threshold_sweep.py``.
+        detect_shadows: use OpenCV's shadow model (shadow pixels are 127 in the raw mask).
+        shadow_value: grey value that OpenCV uses for shadows.
+        shadow_as_foreground_weight: 0 = shadows are never foreground, 1 = always, in between = only
+            shadow pixels that touch sure foreground.
+        morph_close_iter, morph_open_iter: closing (fills holes) and opening (removes specks) iterations.
+        min_contour_area: smaller blobs are dropped (pixels of the preprocessed frame).
+        adaptive: crude rule that lowers the threshold to 10 on dark (mean < 60) or blurry (Laplacian
+            variance < 100) frames; ``AdaptiveMOG2Detector`` is the better version.
     """
-    MOG2 background subtraction.
 
-    Shadow handling (tuning pass)
-    ------------------------------
-    Previously `detect_shadows` defaulted to False, so OpenCV's shadow
-    model never ran and cast shadows were classified as solid foreground
-    -- a common source of oversized/merged bounding boxes in outdoor or
-    side-lit footage. This version:
-
-      * defaults `detect_shadows=True` so MOG2's own shadow model runs,
-      * explicitly separates the mask values MOG2 can produce
-        (0 = background, 127 = shadow, 255 = sure foreground) instead of
-        `raw_mask > 0`, which treated shadow pixels as foreground and
-        silently defeated the shadow model even when it was enabled,
-      * exposes `shadow_as_foreground_weight` so shadow pixels can be kept
-        only where they adjoin sure foreground (the likely dark side of a
-        real object) rather than either "always foreground" or "always
-        discarded".
-
-    var_threshold default (tuning pass)
-    ------------------------------------
-    Previously defaulted to 25, an unexplained deviation from the
-    literature. `var_threshold=16` is the value derived analytically in
-    the algorithm's originating work (Zivkovic & van der Heijden, 2006,
-    "Efficient Adaptive Density Estimation per Image Pixel for the Task
-    of Background Subtraction") as 4-sigma, and is the value documented
-    by OpenCV itself as the typical setting. This is now the default here
-    and throughout the configs. If a project-specific value other than 16
-    is ever adopted, it should be backed by a sensitivity sweep on the
-    actual dataset (see scripts/mog2_threshold_sweep.py) rather than
-    asserted, and the justification should be recorded alongside the
-    config that sets it.
-    """
     def __init__(self, history=20, var_threshold=16, detect_shadows=True,
                  shadow_value=127, shadow_as_foreground_weight=0.0,
                  morph_close_iter=2, morph_open_iter=1, min_contour_area=500,
-                 adaptive=False):   # NEW: adaptive flag
+                 adaptive=False):
         self.history = history
         self.var_threshold = var_threshold
         self.detect_shadows = detect_shadows
@@ -69,6 +57,7 @@ class MOG2Detector(Detector):
         self.mog2 = cv2.createBackgroundSubtractorMOG2(history=self.history, varThreshold=self.var_threshold, detectShadows=self.detect_shadows)
 
     def clean_mask(self, raw_mask: np.ndarray) -> np.ndarray:
+        """Turn the raw MOG2 mask (0 background, 127 shadow, 255 foreground) into a clean 0/255 mask."""
         sure_fg = raw_mask >= 200  # 255 in OpenCV's shadow-detection convention
         if self.detect_shadows and self.shadow_as_foreground_weight > 0.0:
             shadow = np.isclose(raw_mask, self.shadow_value, atol=20) & ~sure_fg
@@ -83,6 +72,7 @@ class MOG2Detector(Detector):
 
     def detect(self, frame: np.ndarray) -> List[BBox]:
         # Adaptive threshold adjustment if enabled
+        """Boxes of the moving blobs in *frame*; this also updates the background model."""
         if self.adaptive:
             gray = _to_gray(frame)
             brightness = float(gray.mean())

@@ -1,14 +1,7 @@
 """The factorial audit passes on the shipped configs and catches a hidden confound."""
 import copy
-import importlib.util
-import sys
-from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "audit_configs.py"
-spec = importlib.util.spec_from_file_location("audit_configs", SCRIPT)
-audit_configs = importlib.util.module_from_spec(spec)
-sys.modules["audit_configs"] = audit_configs
-spec.loader.exec_module(audit_configs)
+import audit_configs
 
 
 def resolved_cells():

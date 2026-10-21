@@ -10,8 +10,10 @@ from .optional import TORCH_AVAILABLE
 from .paths import CONFIGS_DIR
 from .pipeline.builder import DetectionSource
 
+# These are the component kinds that --list-components prints.
 COMPONENT_KINDS = ["detector", "tracker", "preprocessor", "feature", "model"]
 
+# This is the usage text shown at the bottom of --help.
 EXAMPLES = """
 examples:
   python source/run.py --config group_a_classical --target activity
@@ -24,7 +26,18 @@ examples:
 """
 
 
+def worker_count(text: str):
+    """Argparse type for ``--workers``: a whole number or the word ``auto``."""
+    if text.strip().lower() == "auto":
+        return "auto"
+    try:
+        return int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number or 'auto', got {text!r}")
+
+
 def build_parser() -> argparse.ArgumentParser:
+    """Argument parser of ``run.py``."""
     p = argparse.ArgumentParser(
         description="Activity and imaging-condition classification on AD-SVD.",
         epilog=EXAMPLES,
@@ -47,8 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
                    help="override one config value, e.g. --set detection.mog2.history=300 "
                         "(repeatable; values are parsed as YAML)")
-    p.add_argument("--workers", type=int, help="number of video-processing worker processes "
-                                               "(overrides experiment.n_workers)")
+    p.add_argument("--workers", type=worker_count, help="number of video-processing worker processes, "
+                                                        "or 'auto' for all cores but one (overrides experiment.n_workers)")
     p.add_argument("--features-csv", help="reuse a cached video_features.csv instead of "
                                           "processing videos (classifier-only re-runs)")
     p.add_argument("--list-configs", action="store_true", help="list available configs and exit")
@@ -57,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def list_configs() -> None:
+    """Print the names of the YAML experiment configs (everything in ``configs/`` except ``base``)."""
     print("Available configs:")
     for path in sorted(CONFIGS_DIR.glob("*.yaml")):
         if path.stem != "base":
@@ -64,6 +78,7 @@ def list_configs() -> None:
 
 
 def list_components() -> None:
+    """Print every registered detector, tracker, preprocessor, feature module and model name."""
     for kind in COMPONENT_KINDS:
         print(f"\n{kind}:")
         for name in registry.available(kind):
@@ -71,11 +86,15 @@ def list_components() -> None:
 
 
 def run_group(group: str, args: argparse.Namespace) -> None:
+    """Run one config: collect the video features once, then train and evaluate for each target.
+
+    A config error is printed and the group skipped, so one bad config does not stop ``--all-groups``.
+    """
     print(f"\n{'#' * 70}\n# GROUP: {group}\n{'#' * 70}")
     try:
         overrides = merge_overrides(
             {"dataset": {"n_random_videos_per_group": args.n}},
-            {"experiment": {"n_workers": args.workers}} if args.workers else None,
+            {"experiment": {"n_workers": args.workers}} if args.workers is not None else None,
             parse_set_overrides(args.overrides),
         )
         cfg = load_config(group, overrides=overrides)
@@ -112,6 +131,7 @@ def run_group(group: str, args: argparse.Namespace) -> None:
 
 
 def run_neural(runner, df, target, args) -> None:
+    """Train the clip-based neural model on the dataset for *target* (skipped in ``--diagnose`` mode)."""
     clips = runner.prepare_clip_dataset(df, use_sample=args.sample)
     if not clips:
         print("  No clips generated.")
@@ -122,6 +142,7 @@ def run_neural(runner, df, target, args) -> None:
 
 
 def run_tabular(runner, features, target, args) -> None:
+    """Train and evaluate the classical classifiers for *target* (skipped with ``--diagnose``)."""
     if not features:
         print(f"  No video features collected for target '{target}'.")
     elif args.diagnose:
@@ -131,6 +152,7 @@ def run_tabular(runner, features, target, args) -> None:
 
 
 def main() -> int:
+    """Choose the configs from the flags, run them and return the exit code (0 = ok, 1 = nothing to do)."""
     parser = build_parser()
     args = parser.parse_args()
 
@@ -157,7 +179,7 @@ def main() -> int:
         for group in groups:
             run_group(group, args)
     except FileNotFoundError as err:
-        print(f"\nERROR: {err}\nSee docs/howToRun.md, step 2, for where the dataset goes.")
+        print(f"\nERROR: {err}\nSee docs/notes/howToRun.md, step 2, for where the dataset goes.")
         return 1
 
     print("\nDone. Results are in experiments/")

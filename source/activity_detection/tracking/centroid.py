@@ -6,7 +6,7 @@ from typing import List
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from ..interfaces import BBox, Track
+from ..interfaces import BBox
 from ..registry import register
 from .base import BaseTracker
 

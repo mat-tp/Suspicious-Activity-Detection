@@ -13,7 +13,7 @@ from activity_detection.features.video_features import (
     extract_temporal_context)
 from activity_detection.features.wavelet import WaveletFeatures
 
-APPENDIX = (Path(__file__).resolve().parents[2] / "docs" / "feature_appendix.tex").read_text()
+APPENDIX = (Path(__file__).resolve().parents[2] / "docs" / "manuscript" / "feature_appendix.tex").read_text()
 LISTED = set(re.findall(r"\\f\{([^}]*)\}", APPENDIX))
 
 

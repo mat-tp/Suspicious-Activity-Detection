@@ -1,3 +1,13 @@
+"""Per-track motion descriptors: speed, direction, acceleration, jerk and path shape.
+
+Each extractor gets one track and returns a dict of numbers, or ``None`` if the track is too short.
+Speeds are in pixels per second, so videos with different frame rates can be compared.
+
+A track can go unmatched for a few frames, so two points may be more than one frame apart. By default
+every step counts as one frame (``gap_aware=False``), which overstates the speed after a gap and, because
+gaps are more common in blurred video, can make a motion feature partly encode the imaging condition.
+With ``gap_aware=True`` the real time between the points is used.
+"""
 from __future__ import annotations
 
 from typing import List, Optional
@@ -6,6 +16,9 @@ import numpy as np
 from scipy.spatial import ConvexHull
 from scipy.spatial.distance import euclidean
 from scipy.stats import kurtosis, skew
+
+from ..interfaces import FeatureDict, FeatureExtractor, Track
+from ..registry import register
 
 # A sample whose spread is below this has no meaningful skewness or kurtosis (scipy returns NaN).
 MIN_SPREAD_FOR_SHAPE_STATISTICS = 1e-9
@@ -26,33 +39,42 @@ def safe_kurtosis(values) -> float:
         return 0.0
     return float(np.nan_to_num(kurtosis(values)))
 
-from ..interfaces import FeatureDict, FeatureExtractor, Track
-from ..registry import register
+
+def step_gaps(track: Track, n_points: int, gap_aware: bool) -> np.ndarray:
+    """Number of frames between consecutive trajectory points (length ``n_points - 1``).
+
+    All ones unless *gap_aware* is true AND the track records one frame index per point
+    (trackers that keep no ``frames`` list, or whose lists disagree in length, fall back to ones).
+    """
+    ones = np.ones(max(n_points - 1, 0))
+    if not gap_aware:
+        return ones
+    frames = track.get("frames")
+    if frames is None or len(frames) != n_points:
+        return ones
+    gaps = np.diff(np.asarray(frames, dtype=float))
+    return np.maximum(gaps, 1.0)
 
 
 @register("feature", "trajectory")
 class TrajectoryFeatures(FeatureExtractor):
-    """
-    Trajectory-level motion descriptors, fully normalised to physical units.
+    """Speed, heading, size and flow descriptors of a track, in physical units.
 
-    Normalisation (applied identically in every configuration):
-      speeds    [px/frame]  × fps   → px/s
-      path_len, net_disp             ÷ duration_sec → px/s (rates)
-      track_duration               = n_frames / fps (seconds)
-      dimensionless ratios (straightness, skewness, kurtosis,
-        direction_std_deg) — unchanged.
+    Speeds are multiplied by the frame rate (``context["fps"]``, default 10) to give pixels per second, and
+    the duration is the track's own length in seconds. The headings are plain means in [0, 360) and so wrap
+    around; ``CircularMotionFeatures`` has the circular versions.
 
-    fps is read from context["fps"] (injected by PipelineRunner from
-    CAP_PROP_FPS; default 10.0 for backward compatibility).
-    Per-track duration uses the track's own frame count, NOT the total
-    video duration, so a short track inside a long video is correctly
-    normalised.
+    Args:
+        min_trajectory_len: kept for symmetry with the other extractors; the runner does the length filtering.
+        gap_aware: use the real time between points (see the module docstring).
     """
 
-    def __init__(self, min_trajectory_len=30):
+    def __init__(self, min_trajectory_len=30, gap_aware=False):
         self.min_trajectory_len = min_trajectory_len
+        self.gap_aware = gap_aware
 
     def feature_names(self) -> List[str]:
+        """Names of the 14 descriptors returned by :meth:`extract_track`."""
         return [
             "track_duration_sec",           # track's own duration (s)
             "path_speed_px_s",              # path_length / duration (px/s)
@@ -71,20 +93,27 @@ class TrajectoryFeatures(FeatureExtractor):
         ]
 
     def extract_track(self, track: Track, **context) -> Optional[FeatureDict]:
+        """Speed, straightness, heading and extent of one track; ``None`` below 2 points.
+
+        ``context`` supplies ``fps`` and the video-level Lucas-Kanade flow summary, which is
+        copied unchanged into every track of the video.
+        """
         traj = np.array(track["trajectory"], dtype=float)
         if len(traj) < 2:
             return None
 
         fps = float(context.get("fps", 10.0))
+        gaps = step_gaps(track, len(traj), self.gap_aware)
         n_frames_tracked = len(traj)
-        duration_sec = n_frames_tracked / fps      # this track's own duration
+        # Legacy: one frame per point. Gap-aware: first to last observed frame (+1 frame).
+        duration_sec = (gaps.sum() + 1) / fps if self.gap_aware else n_frames_tracked / fps
 
         deltas      = np.diff(traj, axis=0)
-        speeds_pf   = np.linalg.norm(deltas, axis=1)   # px / frame
+        speeds_pf   = np.linalg.norm(deltas, axis=1) / gaps   # px / frame
         speeds_ps   = speeds_pf * fps                   # px / s
         angles_deg  = np.degrees(np.arctan2(deltas[:, 1], deltas[:, 0])) % 360
 
-        total_dist_px = float(speeds_pf.sum())
+        total_dist_px = float(np.linalg.norm(deltas, axis=1).sum())
         net_disp_px   = float(euclidean(traj[0], traj[-1]))
         straightness  = net_disp_px / total_dist_px if total_dist_px > 0 else 0.0
 
@@ -111,10 +140,18 @@ class TrajectoryFeatures(FeatureExtractor):
 
 @register("feature", "circular_motion")
 class CircularMotionFeatures(FeatureExtractor):
+    """Circular statistics of the heading angles of a track (no wrap-around artefacts).
+
+    Returns the circular mean, circular variance ``1 - R``, the mean resultant length ``R``
+    (direction concentration; 1 = perfectly straight) and the angular dispersion.
+    """
+
     def feature_names(self) -> List[str]:
+        """Names of the four circular descriptors."""
         return ["circular_mean_rad", "circular_variance", "direction_concentration", "angular_dispersion"]
 
     def extract_track(self, track: Track, **context) -> Optional[FeatureDict]:
+        """Circular heading statistics of one track; ``None`` below 2 points."""
         traj = np.array(track["trajectory"], dtype=float)
         if len(traj) < 2:
             return None
@@ -136,33 +173,37 @@ class CircularMotionFeatures(FeatureExtractor):
 
 @register("feature", "kinematics")
 class KinematicsFeatures(FeatureExtractor):
-    """
-    Acceleration and jerk in physical units.
+    """Acceleration and jerk in pixels per second squared and cubed (frame rate from ``context["fps"]``).
 
-      speed     [px/frame]  × fps   = speed  [px/s]
-      accel     Δspeed/Δt   × fps   = accel  [px/s²]  (Δt = 1/fps s)
-      jerk      Δaccel/Δt   × fps   = jerk   [px/s³]
-
-    Skewness statistics are dimensionless and unchanged.
-    fps from context["fps"]; default 10.0.
+    Args:
+        gap_aware: divide by the real time between points (see the module docstring).
     """
+
+    def __init__(self, gap_aware: bool = False):
+        self.gap_aware = gap_aware
 
     def feature_names(self) -> List[str]:
+        """Names of the eight acceleration and jerk descriptors."""
         return [
             "mean_accel_px_s2", "std_accel_px_s2", "max_accel_px_s2", "skew_accel",
             "mean_jerk_px_s3",  "std_jerk_px_s3",  "max_jerk_px_s3",  "skew_jerk",
         ]
 
     def extract_track(self, track: Track, **context) -> Optional[FeatureDict]:
+        """Acceleration and jerk statistics of one track; ``None`` below 4 points."""
         traj = np.array(track["trajectory"], dtype=float)
         if len(traj) < 4:
             return None
         fps = float(context.get("fps", 10.0))
 
+        gaps       = step_gaps(track, len(traj), self.gap_aware)
         deltas     = np.diff(traj, axis=0)
-        speeds_pf  = np.linalg.norm(deltas, axis=1)   # px/frame
-        accel_ps2  = np.diff(speeds_pf) * fps          # px/s²  (×fps converts Δ/frame to Δ/s)
-        jerk_ps3   = np.diff(accel_ps2) * fps          # px/s³
+        speeds_pf  = np.linalg.norm(deltas, axis=1) / gaps   # px/frame
+        # Time (in frames) between successive speed / acceleration samples.
+        dt_speed   = (gaps[:-1] + gaps[1:]) / 2.0
+        accel_ps2  = np.diff(speeds_pf) / dt_speed * fps       # px/s²
+        dt_accel   = (dt_speed[:-1] + dt_speed[1:]) / 2.0 if len(dt_speed) > 1 else dt_speed[:0]
+        jerk_ps3   = np.diff(accel_ps2) / dt_accel * fps if len(dt_accel) else np.array([])   # px/s³
 
         if len(accel_ps2) < 2 or len(jerk_ps3) < 2:
             return None
@@ -180,21 +221,17 @@ class KinematicsFeatures(FeatureExtractor):
 
 @register("feature", "shape")
 class ShapeFeatures(FeatureExtractor):
-    """
-    Trajectory shape descriptors, with rates expressed per second.
+    """Curvature, turning rate, hull area, compactness and path efficiency of a track.
 
-      mean/std curvature: |Δangle| per step (rad) — already dimensionless.
-      turning_rate_rad_s: total angle turned ÷ duration_sec → rad/s.
-        Captures direction-change rate independently of video length.
-      convex_hull_area:   spatial extent in px² — length-independent within
-        a video; kept raw.
-      compactness:        4π·area/perimeter² ∈ [0,1] — dimensionless.
-      path_efficiency:    net_disp / path_len ∈ [0,1] — dimensionless.
-
-    fps from context["fps"]; default 10.0.
+    Args:
+        gap_aware: use the real track duration for ``turning_rate_rad_s`` (see the module docstring).
     """
+
+    def __init__(self, gap_aware: bool = False):
+        self.gap_aware = gap_aware
 
     def feature_names(self) -> List[str]:
+        """Names of the six shape descriptors."""
         return [
             "mean_curvature",      # mean |Δangle| per step (rad)
             "std_curvature",       # std  |Δangle| per step (rad)
@@ -205,12 +242,14 @@ class ShapeFeatures(FeatureExtractor):
         ]
 
     def extract_track(self, track: Track, **context) -> Optional[FeatureDict]:
+        """Curvature, turning rate, hull area, compactness and path efficiency; ``None`` below 4 points."""
         traj = np.array(track["trajectory"], dtype=float)
         if len(traj) < 4:
             return None
 
         fps          = float(context.get("fps", 10.0))
-        duration_sec = len(traj) / fps
+        gaps         = step_gaps(track, len(traj), self.gap_aware)
+        duration_sec = ((gaps.sum() + 1) if self.gap_aware else len(traj)) / fps
 
         deltas     = np.diff(traj, axis=0)
         angles_rad = np.arctan2(deltas[:, 1], deltas[:, 0])

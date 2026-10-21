@@ -1,27 +1,23 @@
-"""Video feature collection — separated from training/evaluation.
+"""Collects the feature vector of every video, separate from training.
 
-``VideoFeatureCollector`` owns the loop over all videos, accumulates
-per-distortion statistics, handles parallel workers, writes the per-run
-diagnostic artefacts, and returns the flat list of feature dicts that
-``ExperimentRunner.train_and_evaluate`` consumes.
-
-Everything the old ``ExperimentRunner.collect_video_features`` produced is
-still produced here (failure_taxonomy.json, tracker_metrics.json,
-adaptive_mog2_diagnostics.json, detector_stats.json, videos_attempted.csv,
-the track-length plots, FiftyOne/annotated-video output).  The sensitivity
-sweep reads ``adaptive_mog2_diagnostics.json``, so this must not be dropped.
+``VideoFeatureCollector`` loops over the videos (in one process or several), adds up the
+per-distortion statistics, writes the diagnostic files of the run (failure taxonomy, tracker metrics,
+adaptive MOG2 diagnostics, detector statistics, attempted videos, track-length plots) and returns the
+list of feature dicts that training uses.
 """
 from __future__ import annotations
 
 import json
 import logging
 import multiprocessing
+import os
 import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import cv2
 import numpy as np
 import pandas as pd
 
@@ -34,30 +30,47 @@ from ..pipeline.builder import DetectionSource, PipelineBuilder
 from ..pipeline.runner import PipelineRunner
 from ..tracking.analysis import TrackerAnalyzer
 
+# This is the logger of this module.
 log = logging.getLogger(__name__)
 
 
-# ── Parallel worker (must be a module-level function, not a method) ───────────
+# This is the pipeline runner that each worker process builds once and reuses for all its videos.
+_WORKER_RUNNER: Optional[PipelineRunner] = None
+
+# These are the settings that stop every worker from starting its own pool of math threads.
+_SINGLE_THREAD_ENV = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS")
+
+
+def resolve_worker_count(requested: Any, n_tasks: int) -> int:
+    """Turn the ``n_workers`` setting (a number or ``"auto"``) into a usable process count."""
+    if isinstance(requested, str) and requested.strip().lower() == "auto":
+        requested = (os.cpu_count() or 2) - 1
+    return max(1, min(int(requested or 1), n_tasks or 1))
+
+
+def _build_runner(config_dict: Dict[str, Any], detection_source: Optional[str],
+                  runner_args: Dict[str, Any]) -> PipelineRunner:
+    cfg = Config(config_dict)
+    source = DetectionSource(detection_source) if detection_source else None
+    preprocessor, detector, tracker, optical_flow, extractors, aggregator = (
+        PipelineBuilder.build_all(cfg, source)
+    )
+    return PipelineRunner(preprocessor, detector, tracker, optical_flow, extractors,
+                          aggregator, **runner_args)
+
+
+def _init_worker(config_dict: Dict[str, Any], detection_source: Optional[str],
+                 runner_args: Dict[str, Any]) -> None:
+    """Runs once in each worker process: one OpenCV thread, then build the pipeline."""
+    global _WORKER_RUNNER
+    cv2.setNumThreads(1)
+    _WORKER_RUNNER = _build_runner(config_dict, detection_source, runner_args)
+
 
 def _process_one_video(task: Dict[str, Any]) -> Dict[str, Any]:
-    """Run the full pipeline on one video in an isolated worker process."""
-    cfg = Config(task["config_dict"])
-    detection_source = (
-        DetectionSource(task["detection_source"]) if task["detection_source"] else None
-    )
-    preprocessor, detector, tracker, optical_flow, extractors, aggregator = (
-        PipelineBuilder.build_all(cfg, detection_source)
-    )
+    """Run the pipeline on one video inside a worker process."""
+    runner = _WORKER_RUNNER
     vis_path = Path(task["vis_path"]) if task.get("vis_path") else None
-    runner = PipelineRunner(
-        preprocessor, detector, tracker, optical_flow,
-        extractors, aggregator, task["min_trajectory_len"],
-        use_dense_trajectories=task["use_dense"],
-        enable_multifamily=task["enable_mf"],
-        filter_short_tracks=task.get("filter_short", False),
-        global_flow_step=task.get("global_flow_step", 5),
-        appearance_frame_count=task.get("appearance_frame_count", 30),
-    )
     result = runner.process_video(
         Path(task["vpath"]),
         collect_diagnostics=True,
@@ -80,8 +93,6 @@ def _process_one_video(task: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# ── Per-distortion stats ──────────────────────────────────────────────────────
-
 def _empty_dist_stats() -> Dict[str, Any]:
     return {
         "total": 0, "successful": 0, "failed": 0,
@@ -90,6 +101,7 @@ def _empty_dist_stats() -> Dict[str, Any]:
         "failure_unknown": 0,
         "n_tracks_total": 0, "n_frames_total": 0,
         "with_trajectory": 0,      # videos that kept at least one track (true trajectory yield)
+        "with_usable_trajectory": 0,   # videos with a track of >= min_trajectory_len points
         "track_lengths": [],
     }
 
@@ -118,6 +130,7 @@ def _classify_failure(failure: Optional[FailureReason]) -> Tuple[str, Optional[s
 @dataclass
 class _Accumulator:
     """Everything one collection run builds up, in one place."""
+
     video_features: List[FeatureDict] = field(default_factory=list)
     failure_records: List[Dict] = field(default_factory=list)
     dist_stats: Dict[str, Dict] = field(default_factory=dict)
@@ -131,8 +144,6 @@ class _Accumulator:
     def stats(self, dkey: str) -> Dict:
         return self.dist_stats.setdefault(dkey, _empty_dist_stats())
 
-
-# ── Main collector ────────────────────────────────────────────────────────────
 
 class VideoFeatureCollector:
     """Run the detection-tracking-feature pipeline over every video in *df*."""
@@ -152,19 +163,21 @@ class VideoFeatureCollector:
         self.config = config
         self.detection_source = detection_source
         self.dataset_info = dataset_info
+        # This is the folder where the diagnostic files of the run are written (None
+        # means no files).
         self.run_dir = Path(run_dir) if run_dir else None
         self.plots = plots
         self.fo_visualizer = fo_visualizer
         self.visualise = visualise
         self.n_visualise = n_visualise
+        # These are the settings that are read once from the config and handed to every
+        # pipeline runner.
         self.min_trajectory_len = config.tracking.min_trajectory_len
         self.use_dense = config.features.get("dense_trajectories", {}).get("enabled", False)
         self.enable_mf = config.features.get("enable_multifamily", False)
         self.filter_short = bool(config.tracking.get("filter_short_tracks", False))
         self.global_flow_step = int(config.features.get("global_flow_step", 5))
         self.appearance_frame_count = int(config.features.get("appearance_frame_count", 30))
-
-    # ── Public entry point ────────────────────────────────────────────────────
 
     def collect(self, df: pd.DataFrame, use_sample: bool = False) -> List[FeatureDict]:
         """Return a flat list of video feature dicts ready for training."""
@@ -178,17 +191,18 @@ class VideoFeatureCollector:
         )
         tasks = self._build_task_list(groups, acc, total)
         frame_sampling = self._get_frame_sampling(groups)
-        n_workers = max(1, min(int(self.config.experiment.get("n_workers", 1) or 1), len(tasks) or 1))
+        n_workers = resolve_worker_count(self.config.experiment.get("n_workers", 1), len(tasks))
 
         if n_workers <= 1:
             self._run_sequential(tasks, df, frame_sampling, total, acc)
         else:
             self._run_parallel(tasks, df, frame_sampling, total, n_workers, acc)
 
+        # Parallel workers finish in any order, and the CV folds depend on the row order,
+        # so the rows are sorted to get the same folds for the same videos on every run.
+        acc.video_features.sort(key=lambda fv: fv["video_name"])
         self._write_artifacts(acc, groups, total)
         return acc.video_features
-
-    # ── Group / task helpers ──────────────────────────────────────────────────
 
     def _build_groups(self, df: pd.DataFrame, use_sample: bool) -> Dict[Tuple, List[str]]:
         groups: Dict[Tuple, List[str]] = {}
@@ -241,21 +255,19 @@ class VideoFeatureCollector:
                 return self.dataset_info.get_adaptive_frame_sampling(first, 100)
         return 1
 
-    # ── Sequential path ───────────────────────────────────────────────────────
-
-    def _run_sequential(self, tasks, df, frame_sampling, total, acc: _Accumulator) -> None:
-        preprocessor, detector, tracker, optical_flow, extractors, aggregator = (
-            PipelineBuilder.build_all(self.config, self.detection_source)
-        )
-        runner = PipelineRunner(
-            preprocessor, detector, tracker, optical_flow, extractors, aggregator,
-            self.min_trajectory_len,
+    def _runner_args(self) -> Dict[str, Any]:
+        return dict(
+            min_trajectory_len=self.min_trajectory_len,
             use_dense_trajectories=self.use_dense,
             enable_multifamily=self.enable_mf,
             filter_short_tracks=self.filter_short,
             global_flow_step=self.global_flow_step,
             appearance_frame_count=self.appearance_frame_count,
         )
+
+    def _run_sequential(self, tasks, df, frame_sampling, total, acc: _Accumulator) -> None:
+        source = self.detection_source.value if self.detection_source else None
+        runner = _build_runner(self.config.to_dict(), source, self._runner_args())
         for task in tasks:
             vis_path = Path(task["vis_path"]) if task["vis_path"] else None
             result = runner.process_video(
@@ -267,42 +279,42 @@ class VideoFeatureCollector:
                              if hasattr(runner.detector, "get_diagnostics") else None)
             self._fold_result(task, total, result, adaptive_diag, df, acc)
 
-    # ── Parallel path ─────────────────────────────────────────────────────────
-
     def _run_parallel(self, tasks, df, frame_sampling, total, n_workers, acc: _Accumulator) -> None:
         print(f"\n  [parallel] Processing {len(tasks)} videos across {n_workers} worker processes")
-        config_dict = self.config.to_dict()
-        payloads = [
-            {**task,
-             "config_dict": config_dict,
-             "detection_source": self.detection_source.value if self.detection_source else None,
-             "frame_sampling": frame_sampling,
-             "min_trajectory_len": self.min_trajectory_len,
-             "use_dense": self.use_dense,
-             "enable_mf": self.enable_mf,
-             "filter_short": self.filter_short,
-             "global_flow_step": self.global_flow_step,
-             "appearance_frame_count": self.appearance_frame_count}
-            for task in tasks
-        ]
-        with ProcessPoolExecutor(max_workers=n_workers,
-                                 mp_context=multiprocessing.get_context("spawn")) as pool:
-            futures = {pool.submit(_process_one_video, p): p for p in payloads}
-            for fut in as_completed(futures):
-                payload = futures[fut]
-                try:
-                    out = fut.result()
-                except Exception as exc:
-                    acc.processed += 1
-                    log.error("Worker failed for %s: %s", payload["vname"], exc)
-                    acc.failure_records.append({"video": payload["vname"], "activity": payload["activity"],
-                                                "distortion": payload["distortion"],
-                                                "reason": f"worker_error: {exc}"})
-                    acc.stats(str(payload["distortion"]))["failed"] += 1
-                    continue
-                self._fold_result(out, total, out["result"], out["adaptive_diagnostics"], df, acc)
-
-    # ── Result integration ────────────────────────────────────────────────────
+        payloads = [{**task, "frame_sampling": frame_sampling} for task in tasks]
+        init_args = (
+            self.config.to_dict(),
+            self.detection_source.value if self.detection_source else None,
+            self._runner_args(),
+        )
+        # The workers inherit the environment of this process when they are spawned, so the
+        # thread limits are set here and put back afterwards.
+        saved_env = {name: os.environ.get(name) for name in _SINGLE_THREAD_ENV}
+        os.environ.update({name: "1" for name in _SINGLE_THREAD_ENV})
+        try:
+            with ProcessPoolExecutor(max_workers=n_workers,
+                                     mp_context=multiprocessing.get_context("spawn"),
+                                     initializer=_init_worker, initargs=init_args) as pool:
+                futures = {pool.submit(_process_one_video, p): p for p in payloads}
+                for fut in as_completed(futures):
+                    payload = futures[fut]
+                    try:
+                        out = fut.result()
+                    except Exception as exc:
+                        acc.processed += 1
+                        log.error("Worker failed for %s: %s", payload["vname"], exc)
+                        acc.failure_records.append({"video": payload["vname"], "activity": payload["activity"],
+                                                    "distortion": payload["distortion"],
+                                                    "reason": f"worker_error: {exc}"})
+                        acc.stats(str(payload["distortion"]))["failed"] += 1
+                        continue
+                    self._fold_result(out, total, out["result"], out["adaptive_diagnostics"], df, acc)
+        finally:
+            for name, value in saved_env.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
 
     def _fold_result(self, task: Dict, total: int, result, adaptive_diag,
                      df: pd.DataFrame, acc: _Accumulator) -> None:
@@ -333,6 +345,7 @@ class VideoFeatureCollector:
         stats["successful"] += 1
         has_traj = bool(result.track_lengths)
         stats["with_trajectory"] += int(has_traj)
+        stats["with_usable_trajectory"] += int(result.n_usable_tracks > 0)
         if vis_path is not None:
             self._record_visualisation(task, result, acc)
 
@@ -341,6 +354,7 @@ class VideoFeatureCollector:
             "activity": activity, "distortion": distortion, "video_name": vname,
             "n_tracks": len(result.tracks), "frames_used": result.n_frames_processed,
             "has_trajectory": float(has_traj),
+            "n_usable_tracks": result.n_usable_tracks,
             "track_length": float(np.mean(result.track_lengths)) if result.track_lengths else 0.0,
             "feature_count": result.feature_count,
             "track_confidence": self._track_confidence(result.track_lengths),
@@ -401,8 +415,6 @@ class VideoFeatureCollector:
                 video_path=task["vpath"], frame_detections=result.frame_detections,
                 frame_size=result.frame_size, activity=activity,
                 distortion=task["distortion"], video_name=task["vname"], tracks=result.tracks)
-
-    # ── Run artefacts ─────────────────────────────────────────────────────────
 
     def _write_artifacts(self, acc: _Accumulator, groups: Dict, total: int) -> None:
         if acc.unknown_by_class:
@@ -465,6 +477,7 @@ class VideoFeatureCollector:
             summary[dkey] = {
                 "total_videos": s["total"], "successful_videos": s["successful"],
                 "videos_with_trajectory": s["with_trajectory"],
+                "videos_with_usable_trajectory": s["with_usable_trajectory"],
                 "failed_videos": s["failed"], "success_rate": rate,
                 "failure_detection": s["failure_detection"], "failure_tracking": s["failure_tracking"],
                 "failure_track_too_short": s["failure_track_too_short"],
@@ -475,8 +488,11 @@ class VideoFeatureCollector:
         overall = n_success / total * 100 if total > 0 else 0.0
         n_traj = sum(s["with_trajectory"] for s in dist_stats.values())
         traj_pct = n_traj / total * 100 if total > 0 else 0.0
+        n_usable = sum(s["with_usable_trajectory"] for s in dist_stats.values())
         print(f"\n  Overall: {n_success}/{total} produced a feature vector ({overall:.1f}%)")
         print(f"  Trajectory yield: {n_traj}/{total} videos kept at least one track ({traj_pct:.1f}%)")
+        print(f"  Usable-trajectory yield: {n_usable}/{total} videos had a track of at least "
+              f"min_trajectory_len points ({(n_usable / total * 100 if total else 0.0):.1f}%)")
         if self.enable_mf and n_success > n_traj:
             print(f"  NOTE: multi-family mode keeps videos without tracks ({n_success - n_traj} here), "
                   f"so the first number is NOT a trajectory yield. Report the second.\n" + "=" * 70)

@@ -1,3 +1,5 @@
+"""Annotated explainability video: tracks, flow arrows and a diagnostics sidebar."""
+
 from __future__ import annotations
 
 from typing import List, Optional
@@ -14,12 +16,16 @@ class ExplainabilityVisualizer:
     """
 
     def __init__(self, output_path: str, fps: float = 10.0, frame_size: tuple = (640, 480)):
+        # This is the width of the panel at the side of the frame that shows the track
+        # statistics.
         self.dashboard_width = 300
         self.out_w = frame_size[0] + self.dashboard_width
         self.out_h = frame_size[1]
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        # This writes the annotated frames to the output video.
         self.writer = cv2.VideoWriter(output_path, fourcc, fps, (self.out_w, self.out_h))
         rng = np.random.default_rng(42)
+        # This is a fixed set of colours, one per track id, so a track keeps its colour.
         self.colors = rng.integers(60, 255, (200, 3), dtype=np.uint8)
 
     def draw_optical_flow(self, frame: np.ndarray, flow: np.ndarray, step: int = 16) -> np.ndarray:
@@ -42,6 +48,7 @@ class ExplainabilityVisualizer:
         return vis
 
     def overlay_tracks(self, frame: np.ndarray, tracks: List[dict]) -> np.ndarray:
+        """Copy of *frame* with each track's box and trajectory tail drawn in a per-track colour."""
         vis = frame.copy()
         for track in tracks:
             tid = track.get("id", 0)
@@ -66,6 +73,7 @@ class ExplainabilityVisualizer:
         return vis
 
     def build_dashboard(self, tracks: List[dict], diagnostics: dict) -> np.ndarray:
+        """Side panel image listing the current tracks and the frame's quality diagnostics."""
         dash = np.zeros((self.out_h, self.dashboard_width, 3), dtype=np.uint8)
         W = self.dashboard_width
 
@@ -102,21 +110,25 @@ class ExplainabilityVisualizer:
             traj = longest.get("trajectory", [])
             n_pts = len(traj)
 
-            put(f"  Track ID : {tid}", y); y += 15
-            put(f"  Path pts : {n_pts}", y); y += 15
+            put(f"  Track ID : {tid}", y)
+            y += 15
+            put(f"  Path pts : {n_pts}", y)
+            y += 15
 
             # Instantaneous speed (px/frame) between last two points
             if n_pts >= 2:
                 p1, p2 = traj[-2], traj[-1]
                 speed = float(np.hypot(p2[0] - p1[0], p2[1] - p1[1]))
-                put(f"  Speed    : {speed:.1f} px/fr", y); y += 15
+                put(f"  Speed    : {speed:.1f} px/fr", y)
+                y += 15
 
             # Trajectory bounding box displacement
             if n_pts >= 2:
                 xs_t = [p[0] for p in traj]
                 ys_t = [p[1] for p in traj]
                 disp = float(np.hypot(xs_t[-1] - xs_t[0], ys_t[-1] - ys_t[0]))
-                put(f"  Displace : {disp:.1f} px", y); y += 15
+                put(f"  Displace : {disp:.1f} px", y)
+                y += 15
 
         y += 6
         put(f"Tracks visible: {len(tracks)}", y, color=(255, 200, 80), scale=0.42)
@@ -125,6 +137,7 @@ class ExplainabilityVisualizer:
 
     def write_frame(self, frame_bgr: np.ndarray, tracks: List[dict],
                     diagnostics: dict, flow: Optional[np.ndarray] = None):
+        """Draw the tracks, optional flow arrows and the dashboard on the frame and append it to the video."""
         vis = frame_bgr.copy()
 
         # Resize vis to match declared output dimensions (guard against mismatch)

@@ -8,6 +8,7 @@ import numpy as np
 from activity_detection.config import load_config
 from activity_detection.detection.adaptive_mog2 import AdaptiveMOG2Detector
 from activity_detection.detection.mog2 import MOG2Detector
+from activity_detection.pipeline.builder import PipelineBuilder
 
 SETTINGS = dict(var_threshold=25, detect_shadows=False)
 
@@ -67,7 +68,6 @@ def test_reset_clears_state():
 
 
 def test_group_i_yaml_parameters_reach_the_detector():
-    from activity_detection.pipeline.builder import PipelineBuilder
     cfg = load_config("group_i_adaptive_mog2", overrides={
         "detection": {"adaptive_mog2": {"quality_threshold": 0.55, "mask_weight": 0.3}}})
     detector = PipelineBuilder.build_detector(cfg)
@@ -111,12 +111,11 @@ def _background_gap(detector, reference_background, frames):
 
 
 def test_adaptive_retry_never_advances_the_background_model_twice():
-    """quality_threshold above 1 forces a relaxed retry on every frame after warm-up.
+    """A quality threshold above 1 forces a relaxed retry on every frame.
 
-    With update_once=True the retry runs at learning rate 0, so the learned background
-    stays equal to plain MOG2's. It is not bit-identical: OpenCV may re-order mixture
-    components during the rate-0 call, which moves a handful of pixels by one grey
-    level. The old double-update behaviour changes a large share of the image.
+    With ``update_once=True`` the retry uses learning rate 0, so the background stays close to plain MOG2's
+    (OpenCV may reorder mixture components, which moves a few pixels by one grey level). The old double
+    update changes a large share of the image.
     """
     frames = make_frames()
     plain_background = _background_after(MOG2Detector(**SETTINGS), frames)

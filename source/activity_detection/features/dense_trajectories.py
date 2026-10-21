@@ -1,3 +1,5 @@
+"""Dense-trajectory style descriptors (HOG / HOF / MBH) around interest points of the video."""
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
@@ -11,16 +13,35 @@ from ..registry import register
 
 @register("feature", "dense_trajectories")
 class DenseTrajectoryFeatures(FeatureExtractor):
+    """Simplified dense-trajectory descriptors.
+
+    Each track gives simple trajectory statistics. The HOG, HOF, MBH, keypoint, flow and edge values are
+    computed once per video from the middle pair of frames (``context['prev_gray']`` and
+    ``context['curr_gray']``), so they are the same for every track of a video.
+
+    Args:
+        min_trajectory_len: shorter tracks return ``None``.
+        step_size: grid spacing of the keypoints (px).
+        block_size: side of the patch around a keypoint.
+        feature_types: any of ``trajectory``, ``hog``, ``hof``, ``mbh``.
+    """
+
     def __init__(self, min_trajectory_len=15, step_size=5, block_size=32, feature_types=None):
         self.min_trajectory_len = min_trajectory_len
         self.step_size = step_size
         self.block_size = block_size
         self.feature_types = feature_types or ["trajectory", "hog", "hof", "mbh"]
+        if not hasattr(cv2, "HOGDescriptor"):
+            raise ImportError("Dense-trajectory features need cv2.HOGDescriptor, which OpenCV 5 "
+                              "removed. Install OpenCV 4: pip install \"opencv-python>=4.8,<5\".")
+        # This is the OpenCV HOG descriptor that computes the histograms of a patch.
         self.hog_descriptor = cv2.HOGDescriptor(_winSize=(block_size, block_size), _blockSize=(16, 16),
                                                 _blockStride=(8, 8), _cellSize=(8, 8), _nbins=9)
+        # This is the FAST corner detector that finds interest points.
         self.fast_detector = cv2.FastFeatureDetector_create(threshold=20)
 
     def feature_names(self) -> List[str]:
+        """Names of all descriptors enabled by ``feature_types``."""
         names = []
         if "trajectory" in self.feature_types:
             names.extend(["dense_traj_length", "dense_traj_displacement", "dense_traj_mean_speed",
@@ -37,6 +58,7 @@ class DenseTrajectoryFeatures(FeatureExtractor):
         return names
 
     def extract_keypoints(self, gray_frame: np.ndarray) -> np.ndarray:
+        """Interest points of *gray_frame* (Shi-Tomasi, FAST and textured grid points), one per grid cell."""
         h, w = gray_frame.shape[:2]
         points = []
         shi_tomasi = cv2.goodFeaturesToTrack(gray_frame, maxCorners=100, qualityLevel=0.01,
@@ -66,6 +88,8 @@ class DenseTrajectoryFeatures(FeatureExtractor):
         return points if len(points) > 0 else np.array([])
 
     def compute_local_descriptors(self, gray_patch: np.ndarray, flow_patch: np.ndarray) -> Dict[str, float]:
+        """HOG, HOF and MBH histograms (9 bins each) of a grey patch and its flow patch; zeros if they cannot be computed.
+        """
         features = {}
         if "hog" in self.feature_types and gray_patch.shape[0] >= self.block_size:
             try:
@@ -110,6 +134,7 @@ class DenseTrajectoryFeatures(FeatureExtractor):
         return features
 
     def extract_track(self, track: Track, **context) -> Optional[FeatureDict]:
+        """Trajectory statistics of the track plus the video-level descriptors; ``None`` for a short track."""
         traj = np.array(track["trajectory"], dtype=float)
         if len(traj) < self.min_trajectory_len:
             return None

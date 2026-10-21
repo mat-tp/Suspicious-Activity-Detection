@@ -23,6 +23,7 @@ from .metrics import (
     scores_from_confusion,
 )
 
+# This is the logger of this module.
 log = logging.getLogger(__name__)
 
 
@@ -75,16 +76,12 @@ def cross_validate_model(model, X: np.ndarray, y: np.ndarray, class_names: List[
                          groups: Optional[np.ndarray] = None) -> Dict[str, Any]:
     """Cross-validate one model and return a JSON-friendly summary.
 
-    y must be integer class indices 0..K-1 matching class_names.
-    groups (optional) gives one id per sample; samples sharing an id always land in
-    the same fold (use it when several videos come from the same recording).
+    *y* holds class indices 0..K-1 that match *class_names*. *groups* (optional) is one id per sample;
+    samples with the same id always land in the same fold.
 
-    Returned keys:
-      fold_scores   per-fold scores for every repeat (mean and std are over folds)
-      pooled        metrics on the out-of-fold predictions of repeat 0, where every
-                    video is predicted exactly once, by a model that never saw it
-      ci95          bootstrap 95% intervals for the headline pooled metrics
-      repeats       macro-F1 for each repeat, when n_repeats > 1
+    The result has ``fold_scores`` (per-fold scores of every repeat), ``pooled`` (metrics on the out-of-fold
+    predictions of the first repeat, where each video is predicted once by a model that never saw it),
+    ``ci95`` (bootstrap intervals of the pooled metrics) and ``repeats`` (macro-F1 per repeat).
     """
     k = len(class_names)
     fold_rows: List[Dict[str, Any]] = []

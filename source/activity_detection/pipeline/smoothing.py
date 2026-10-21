@@ -1,3 +1,5 @@
+"""Combine the predictions of several models into one (ensemble voting)."""
+
 from __future__ import annotations
 
 from typing import Dict
@@ -6,11 +8,22 @@ import numpy as np
 
 
 class TemporalSmoother:
+    """Majority or accuracy-weighted vote across models.
+
+    Despite the name this smooths across MODELS, not across time.
+
+    Args:
+        method: ``"majority_vote"`` or ``"ema"`` (geometric weights, best model highest).
+        ema_alpha: ratio between successive weights for ``"ema"``.
+    """
+
     def __init__(self, method="majority_vote", ema_alpha=0.7):
         self.method = method
         self.ema_alpha = ema_alpha
 
     def smooth(self, predictions_by_model: Dict[str, np.ndarray], accuracy_by_model: Dict[str, float] = None) -> np.ndarray:
+        """One label per sample from the per-model predictions; *accuracy_by_model* orders the models for ``"ema"``.
+        """
         model_names = list(predictions_by_model.keys())
         if not model_names:
             return np.array([])

@@ -1,3 +1,5 @@
+"""Small helpers for experiment bookkeeping (run ids, git commit, reference trajectory length)."""
+
 from __future__ import annotations
 
 import subprocess
@@ -5,6 +7,7 @@ from pathlib import Path
 
 
 def get_next_run_id(experiment_dir: Path) -> str:
+    """Next unused run id (``run_001``, ``run_002``, ...) among the ``run_*`` folders of *experiment_dir*."""
     existing_numbers = []
     if experiment_dir.exists():
         for d in experiment_dir.iterdir():
@@ -18,6 +21,7 @@ def get_next_run_id(experiment_dir: Path) -> str:
 
 
 def get_git_commit() -> str:
+    """Short hash of the current git commit, or ``"unknown"`` outside a repository."""
     try:
         result = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
@@ -31,7 +35,7 @@ def compute_min_trajectory_len(n_frames: int, base_min: int = 30) -> int:
     """
     Reference trajectory length, scaled to video duration.
 
-    v6.0: NOT a hard gate.  Used only as the denominator in
+    NOT a hard gate. Used only as the denominator in
     AdaptiveMOG2Detector.feedback() and for reporting.  The pipeline
     processes every track regardless of length; multi-family blending
     compensates when no tracks exist (Mauthner et al. 2009).

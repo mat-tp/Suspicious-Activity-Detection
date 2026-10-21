@@ -1,3 +1,5 @@
+"""Motion-based detectors that need no background model: dense optical flow and frame differencing."""
+
 from __future__ import annotations
 
 import logging
@@ -11,6 +13,7 @@ from ..detection.utils import STRUCT, _to_gray, make_bbox
 from ..interfaces import BBox, Detector
 from ..registry import register
 
+# This is the logger of this module.
 log = logging.getLogger(__name__)
 
 
@@ -20,6 +23,7 @@ class DenseOpticalFlowDetector(Detector):
     Detects moving regions using Farnebäck dense optical flow magnitude,
     robust to gradual illumination changes (Exposure) and spatial blur (Focus).
     """
+
     def __init__(
         self,
         magnitude_threshold: float = 2.0,
@@ -50,6 +54,7 @@ class DenseOpticalFlowDetector(Detector):
         self._mag_history: List[float] = []
 
     def reset(self) -> None:
+        """Forget the previous frame and the flow-magnitude history."""
         self._prev_gray = None
         self._frame_count = 0
         self._mag_history = []
@@ -94,6 +99,8 @@ class DenseOpticalFlowDetector(Detector):
         return (opened.astype(np.uint8) * 255)
 
     def detect(self, frame: np.ndarray) -> List[BBox]:
+        """Boxes of regions whose Farneback flow is above the (adaptive) threshold; ``[]`` for the first frame.
+        """
         gray = _to_gray(frame)
         self._frame_count += 1
 
@@ -119,6 +126,7 @@ class AdaptiveFrameDiffDetector(Detector):
     Detects motion via absolute frame difference with adaptive threshold,
     works under heavy blur because it does not maintain a background model.
     """
+
     def __init__(
         self,
         threshold: int = 25,
@@ -137,16 +145,21 @@ class AdaptiveFrameDiffDetector(Detector):
         self._prev_gray: Optional[np.ndarray] = None
 
     def reset(self) -> None:
+        """Forget the previous frame."""
         self._prev_gray = None
 
     def detect(self, frame: np.ndarray) -> List[BBox]:
+        """Boxes of regions that changed since the previous frame; ``[]`` for the first frame.
+
+        With ``adaptive=True`` the threshold is raised to 1.5x the ``noise_percentile`` of the difference image, so a noisy frame is not read as motion everywhere.
+        """
         gray = _to_gray(frame)
 
         if self._prev_gray is None:
             self._prev_gray = gray
             return []
 
-        # Guard: mismatched shapes from a corrupted frame — reset and skip.
+        # Guard: mismatched shapes from a corrupted frame, reset and skip.
         if self._prev_gray.shape != gray.shape:
             log.warning(
                 "AdaptiveFrameDiffDetector: shape mismatch prev=%s cur=%s — resetting",

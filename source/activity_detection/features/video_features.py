@@ -1,3 +1,10 @@
+"""Video-level descriptors that do not depend on a tracked object.
+
+Four families are computed from all frames of a video: image quality (``diag_*``), global optical flow
+(``flow_*``), appearance (``app_*``) and temporal track context (``temporal_*``). Together with the
+pooled per-track descriptors they make the multi-family feature vector.
+"""
+
 from __future__ import annotations
 
 from typing import List, Tuple
@@ -10,21 +17,16 @@ from ..interfaces import FeatureDict, Track
 
 
 def extract_temporal_context(tracks: List[Track], total_frames: int = 0) -> FeatureDict:
-    """
-    Compute video-level features that capture *when* and *where* tracks were
-    active — information lost by per-track mean/max/std aggregation.
+    """Features of when and how many tracks were active, which the pooled per-track values lose.
 
-    These features are merged directly into the video feature vector alongside
-    the aggregated track features so that models can distinguish activities
-    characterised by concurrent multi-person motion (FG, PPP) from those that
-    are typically single-person (LPP, PO).
+    They help to tell activities with several people at once (FG, PPP) from single-person ones (LPP, PO).
 
     Args:
-        tracks:       Active tracks returned by the tracker after video processing.
-        total_frames: Number of frames processed (used to normalise coverage).
+        tracks: the tracks of the video.
+        total_frames: number of frames processed.
 
     Returns:
-        FeatureDict with keys prefixed ``temporal_``.
+        A dict whose keys start with ``temporal_``.
     """
     if not tracks:
         return {}
@@ -44,8 +46,8 @@ def extract_temporal_context(tracks: List[Track], total_frames: int = 0) -> Feat
     )
     spatial_spread = float(np.std(all_centroids, axis=0).mean()) if len(all_centroids) > 1 else 0.0
 
-    # Track overlap: naive estimate — count pairs where both are long enough
-    # to plausibly co-exist (both ≥ 15 frames)
+    # Track overlap: naive estimate, count pairs where both are long enough
+    # to plausibly co-exist (both at least 15 frames)
     long_tracks = [t for t in tracks if len(t["trajectory"]) >= 15]
     n_long = len(long_tracks)
     overlap_count = max(0, n_long * (n_long - 1) // 2)
@@ -131,7 +133,8 @@ def extract_global_flow_features(gray_frames: List[np.ndarray],
         try:
             flow = cv2.calcOpticalFlowFarneback(prev_s, curr_s, None, 0.5, 3, 15, 3, 5, 1.2, 0)
         except cv2.error:
-            prev_s = curr_s; continue
+            prev_s = curr_s
+            continue
         mag, ang = cv2.cartToPolar(flow[...,0], flow[...,1])
         mags.append(float(mag.mean()))
         props.append(float((mag > 1.0).mean()))
@@ -140,11 +143,14 @@ def extract_global_flow_features(gray_frames: List[np.ndarray],
             h = h.astype(float) / (h.sum()+1e-7)
         else:
             h = np.zeros(8)
-        hofs.append(h); prev_s = curr_s
+        hofs.append(h)
+        prev_s = curr_s
     if not mags:
         return _Z
-    ma = np.array(mags); ha = np.array(hofs) if hofs else np.zeros((1,8))
-    mh = ha.mean(0); sh = ha.std(0) if len(ha) > 1 else np.zeros(8)
+    ma = np.array(mags)
+    ha = np.array(hofs) if hofs else np.zeros((1,8))
+    mh = ha.mean(0)
+    sh = ha.std(0) if len(ha) > 1 else np.zeros(8)
     p  = mh / (mh.sum()+1e-7)
     ent = float(-np.sum(p[p > 0]*np.log(p[p > 0]+1e-12)))
     res: FeatureDict = {
@@ -183,7 +189,8 @@ def extract_appearance_features(gray_frames: List[np.ndarray]) -> FeatureDict:
         unif = trans <= 2
         bc   = sum(((code>>b)&1) for b in range(8))
         h    = np.zeros(10, dtype=float)
-        for k in range(9): h[k] = np.sum((bc==k)&unif)
+        for k in range(9):
+            h[k] = np.sum((bc==k)&unif)
         h[9] = np.sum(~unif)
         return h / (h.sum()+1e-7)
     lh, ge, hh = [], [], []
@@ -198,7 +205,9 @@ def extract_appearance_features(gray_frames: List[np.ndarray]) -> FeatureDict:
         ge.append(float(mag.mean()))
         h6, _ = np.histogram(ang.flatten(), bins=6, range=(0, np.pi), weights=mag.flatten())
         hh.append(h6 / (h6.sum()+1e-7))
-    la = np.array(lh); ha = np.array(hh); ga = np.array(ge)
+    la = np.array(lh)
+    ha = np.array(hh)
+    ga = np.array(ge)
     res: FeatureDict = {
         "app_grad_energy_mean": float(ga.mean()),
         "app_grad_energy_std":  float(ga.std()) if len(ga) > 1 else 0.0,
@@ -214,9 +223,12 @@ def extract_appearance_features(gray_frames: List[np.ndarray]) -> FeatureDict:
 
 def extract_video_metadata_features(n_frames: int, fps: float,
                                      duration_sec: float) -> FeatureDict:
-    """3 temporal scalars appended to every group's feature vector (A–I).
-    After normalisation these are contextual cues, not confounds.
-    Research: Sargano et al. (2017) — use all available temporal cues."""
+    """Frame count, duration and frame rate of the file, added to every feature vector.
+
+    These describe the file and not the scene. Every re-encoding of one recording has the same length, so a
+    classifier can use them to recognise a recording it has seen. Report results with and without them
+    (``ablation_0_baseline_no_meta`` drops them) and use grouped cross-validation.
+    """
     return {
         "meta_num_frames":   float(n_frames),
         "meta_duration_sec": float(duration_sec),

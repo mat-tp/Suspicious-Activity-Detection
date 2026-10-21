@@ -1,10 +1,8 @@
 """Classification metrics that stay meaningful when classes are imbalanced.
 
-Accuracy alone rewards a model for getting the big classes right. With AD-SVD's
-160 pristine videos against ~1,450 for each other imaging condition, a model
-could ignore "pristine" entirely and still score above 90%. So every report
-carries macro-averaged scores (each class counts equally), per-class scores,
-and the confusion matrix next to accuracy.
+AD-SVD has 160 pristine videos against about 1,450 for each other imaging condition, so accuracy alone
+rewards ignoring the small class. Every report therefore carries macro scores, per-class scores and the
+confusion matrix next to accuracy.
 """
 from __future__ import annotations
 
@@ -13,6 +11,7 @@ from typing import Dict, List, Optional
 import numpy as np
 from sklearn.metrics import cohen_kappa_score, matthews_corrcoef, roc_auc_score
 
+# These are the scores that are reported with a confidence interval.
 HEADLINE_METRICS = ("accuracy", "balanced_accuracy", "macro_f1")
 
 
@@ -91,13 +90,9 @@ def bootstrap_ci(y_true: np.ndarray, y_pred: np.ndarray, n_classes: int,
                  groups: Optional[np.ndarray] = None) -> Dict[str, List[float]]:
     """Percentile bootstrap confidence intervals for the headline metrics.
 
-    Videos are resampled with replacement and the metrics recomputed each time.
-    This shows how much the score depends on which videos happened to be in the
-    data. It does not capture variation from retraining the model.
-
-    When ``groups`` is given (one id per video), whole groups are resampled instead
-    of single videos. Videos of one recording are not independent observations, so
-    resampling them one by one would give intervals that are too narrow.
+    Videos are resampled with replacement and the metrics are recomputed each time. With ``groups`` (one id
+    per video) whole groups are resampled, because videos of one recording are not independent and
+    resampling them one by one gives intervals that are too narrow. Retraining variation is not captured.
     """
     y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
     rng = np.random.default_rng(seed)

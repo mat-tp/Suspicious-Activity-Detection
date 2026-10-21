@@ -1,3 +1,9 @@
+"""LightGBM and XGBoost classifiers behind the common ``Model`` interface.
+
+Both standardise the features inside ``fit`` (so the scaler never sees test folds) and
+encode labels internally, so any hashable class labels work.
+"""
+
 from __future__ import annotations
 
 from sklearn.base import BaseEstimator, ClassifierMixin
@@ -12,6 +18,11 @@ from ..registry import register
 
 @register("model", "lightgbm")
 class LightGBMModel(SklearnParamsMixin, ClassifierMixin, BaseEstimator, Model):
+    """Gradient-boosted trees (LightGBM). ``class_weight="balanced"`` is passed to LightGBM;
+    the other arguments are the usual ``n_estimators``, ``max_depth``, ``learning_rate`` and
+    ``num_leaves``.
+    """
+
     def __init__(self, n_estimators=200, max_depth=6, learning_rate=0.1, num_leaves=31, class_weight="balanced", random_state=42):
         if not LIGHTGBM_AVAILABLE:
             raise ImportError("LightGBM not installed.")
@@ -21,12 +32,16 @@ class LightGBMModel(SklearnParamsMixin, ClassifierMixin, BaseEstimator, Model):
         self.num_leaves = num_leaves
         self.class_weight = class_weight
         self.random_state = random_state
+        # This is the fitted booster; it stays None until fit() is called.
         self._model = None
+        # This scales the features with the mean and spread of the training data.
         self._scaler = StandardScaler()
+        # This turns the class names into integers.
         self._le = LabelEncoder()
         self._classes = None
 
     def fit(self, X, y):
+        """Standardise *X*, encode *y* and train; returns ``self``."""
         self._le.fit(y)
         y_enc = self._le.transform(y)
         self._classes = self._le.classes_
@@ -38,11 +53,13 @@ class LightGBMModel(SklearnParamsMixin, ClassifierMixin, BaseEstimator, Model):
         return self
 
     def predict(self, X):
+        """Predicted original class labels; raises ``ValueError`` before ``fit``."""
         if self._model is None:
             raise ValueError("Model not fitted")
         return self._le.inverse_transform(self._model.predict(self._scaler.transform(X)))
 
     def predict_proba(self, X):
+        """Class probabilities (columns follow ``classes_``), or ``None`` before ``fit``."""
         if self._model is None:
             return None
         return self._model.predict_proba(self._scaler.transform(X))
@@ -58,6 +75,10 @@ class LightGBMModel(SklearnParamsMixin, ClassifierMixin, BaseEstimator, Model):
 
 @register("model", "xgboost")
 class XGBoostModel(SklearnParamsMixin, ClassifierMixin, BaseEstimator, Model):
+    """Gradient-boosted trees (XGBoost). XGBoost has no ``class_weight`` option, so
+    ``"balanced"`` is converted to per-sample weights at fit time.
+    """
+
     def __init__(self, n_estimators=200, max_depth=6, learning_rate=0.1,
                  class_weight="balanced", random_state=42):
         if not XGBOOST_AVAILABLE:
@@ -67,12 +88,16 @@ class XGBoostModel(SklearnParamsMixin, ClassifierMixin, BaseEstimator, Model):
         self.learning_rate = learning_rate
         self.class_weight = class_weight
         self.random_state = random_state
+        # This is the fitted booster; it stays None until fit() is called.
         self._model = None
+        # This scales the features with the mean and spread of the training data.
         self._scaler = StandardScaler()
+        # This turns the class names into integers.
         self._le = LabelEncoder()
         self._classes = None
 
     def fit(self, X, y):
+        """Standardise *X*, encode *y*, apply balanced sample weights if requested, and train."""
         self._le.fit(y)
         y_enc = self._le.transform(y)
         self._classes = self._le.classes_
@@ -86,11 +111,13 @@ class XGBoostModel(SklearnParamsMixin, ClassifierMixin, BaseEstimator, Model):
         return self
 
     def predict(self, X):
+        """Predicted original class labels; raises ``ValueError`` before ``fit``."""
         if self._model is None:
             raise ValueError("Model not fitted")
         return self._le.inverse_transform(self._model.predict(self._scaler.transform(X)))
 
     def predict_proba(self, X):
+        """Class probabilities (columns follow ``classes_``), or ``None`` before ``fit``."""
         if self._model is None:
             return None
         return self._model.predict_proba(self._scaler.transform(X))

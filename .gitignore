@@ -1,35 +1,84 @@
-# data and results (large, regenerated)
-data/
-experiments/
+# Dataset and results: large, and they can be regenerated
+/data/
+/experiments/
+/experiments_smoke/
 /models/
-plots/
-outputs/
+/plots/
+/outputs/
 *.pkl
-*.zip
+*.pt
+*.pth
+*.joblib
+
+# Videos and other big media (the slides and the written documents are kept)
+*.mp4
+*.avi
+*.mov
+*.mkv
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Virtual environments (build.sh creates sdr-env/)
+sdr-env/
+.venv/
+venv/
+
+# Logs of the smoke runs (the logs of the full runs in docs/logs are kept)
+docs/logs/smoke_*/
 
 # LaTeX build files
 *.aux
-*.log
-*.out
-*.fls
-*.fdb_latexmk
-*.synctex.gz
 *.bbl
 *.blg
-docs/paper.pdf
-REVIEWER_NOTES.txt
-# personal / not for a public repo while the paper is under review
-ss/
-docs/project_report.pdf
-docs/feature_appndix.tex
-docs/paper.tex
-docs/project_report.pdf
+*.fdb_latexmk
+*.fls
+*.log
+*.nav
+*.out
+*.snm
+*.synctex.gz
+*.toc
+*.vrb
+!docs/logs/*.log
 
-# Virtual environment and smoke-test results created by build.sh
-sdr-env/
-experiments_smoke/
+# Compiled report (the slides in ss/ are kept)
+docs/manuscript/*.pdf
+
+# Private notes
+docs/notes/Reviewers_notes.txt
+
+# Editor and system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# The notes on how I Do my Reports and Current Strategies
+
+# since I will be testing on my Google-VM, we can leave out this one for now
+# docs/logs/* 
+docs/manuscript/*
+docs/notes/*
+docs/notes/AUDIT_REPORT.md
+docs/notes/PUBLICATION_STRATEGY.md
+docs/notes/TRAINING_PROCEDURE.md
+docs/notes/ablation_study.md
+docs/notes/CHANGES.md
+docs/notes/Reviewers_notes.txt
+
+# The only thing to share from notes is HowToRun.md
+!notes/howToRun.md
+
+# Remove the "#" in front of these lines to keep the paper out of a public repository
+# while it is under review.
+# docs/manuscript/paper.tex
+# docs/manuscript/extended_abstract.tex
+# docs/manuscript/paper_references.bib

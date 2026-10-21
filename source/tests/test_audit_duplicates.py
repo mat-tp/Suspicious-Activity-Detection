@@ -1,11 +1,7 @@
-import sys
-from pathlib import Path
-
 import cv2
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import audit_duplicates as ad  # noqa: E402
+import audit_duplicates as ad
 
 
 def _video(path, seed, n=40, gain=1.0, noise=0.0):

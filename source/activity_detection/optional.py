@@ -6,6 +6,7 @@ the flag instead of wrapping every import in try/except.
 """
 import logging
 
+# This is the logger of this module.
 log = logging.getLogger(__name__)
 
 try:
@@ -55,6 +56,7 @@ except ImportError:
     fo = foz = None
     FIFTYONE_AVAILABLE = False
 
+# This is the message to show for each optional package that is not installed.
 _MISSING = {
     "LightGBM": LIGHTGBM_AVAILABLE, "XGBoost": XGBOOST_AVAILABLE,
     "PyWavelets": PYWAVELETS_AVAILABLE, "Matplotlib/Seaborn": MATPLOTLIB_AVAILABLE,

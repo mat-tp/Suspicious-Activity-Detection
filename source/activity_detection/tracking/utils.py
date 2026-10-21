@@ -1,9 +1,12 @@
+"""Geometry helpers for trackers."""
+
 from __future__ import annotations
 
 from ..interfaces import BBox
 
 
 def bbox_iou(a: BBox, b: BBox) -> float:
+    """Intersection over union of two boxes (dicts with ``x, y, w, h``); 0.0 when the union is empty."""
     ax1, ay1 = a["x"], a["y"]
     ax2, ay2 = ax1 + a["w"], ay1 + a["h"]
     bx1, by1 = b["x"], b["y"]

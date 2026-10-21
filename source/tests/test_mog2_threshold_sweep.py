@@ -1,16 +1,11 @@
 """Tests for the var_threshold ablation script (fake runner, no videos needed)."""
-import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
 
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
-sys.path.insert(0, str(SCRIPTS))
-spec = importlib.util.spec_from_file_location("mog2_threshold_sweep", SCRIPTS / "mog2_threshold_sweep.py")
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-mod.yield_by_distortion = sys.modules["sweep_common"].yield_by_distortion
+import mog2_threshold_sweep as mod
+from activity_detection.pipeline.builder import PipelineBuilder
+from sweep_common import yield_by_distortion
 
 
 class FakeRunner:
@@ -78,7 +73,6 @@ def test_default_is_the_literature_value():
 
 def test_threshold_reaches_the_adaptive_detector_too():
     """Sweep override must land on the detector object, for fixed AND adaptive bases."""
-    from activity_detection.pipeline.builder import PipelineBuilder
     for base in ("group_a_classical", "ablation_1_detector_only"):
         cfg = mod.setting_config(base, 25, "random_forest_sklearn", 5)
         det = PipelineBuilder.build_detector(cfg)
@@ -120,8 +114,8 @@ def test_yield_by_distortion_reads_videos_attempted(tmp_path):
     (tmp_path / "videos_attempted.csv").write_text(
         "video,activity,distortion,status\n"
         "a,walk,Focus,ok\nb,walk,Focus,failed: no_tracks\nc,walk,Pristine,ok\n")
-    assert mod.yield_by_distortion(tmp_path) == {"yield_Focus": 0.5, "yield_Pristine": 1.0}
-    assert mod.yield_by_distortion(tmp_path / "missing") == {}
+    assert yield_by_distortion(tmp_path) == {"yield_Focus": 0.5, "yield_Pristine": 1.0}
+    assert yield_by_distortion(tmp_path / "missing") == {}
 
 
 def test_plot_and_csv_include_common_and_per_distortion_columns(tmp_path):

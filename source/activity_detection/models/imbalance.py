@@ -1,31 +1,9 @@
-"""Class-imbalance handling, chosen from the config (`imbalance:` section).
+"""Class-imbalance handling, chosen in the ``imbalance:`` section of a config.
 
-Three independent choices:
-
-class_weight   How much each class counts in the loss.
-    balanced   rarer classes count more (inverse class frequency)
-    none       every sample counts the same
-    Applied to every model that supports it. KNN has no class weights.
-
-resampling     Change the training set itself. Applied inside each training
-               fold only; test folds are never touched.
-    none              leave the data alone
-    random_over       duplicate minority samples
-    smote             synthetic samples interpolated between minority neighbours
-    borderline_smote  SMOTE, only near the class boundary
-    adasyn            SMOTE, more samples where the minority is harder to learn
-    smote_tomek       SMOTE, then remove Tomek-link pairs
-    smote_enn         SMOTE, then remove samples their neighbours disagree with
-    random_under      drop majority samples
-    gaussian_noise    augmentation: copies of minority samples plus small noise
-    mixup             augmentation: blends of two samples of the same class
-
-sampling_ratio How far to balance, from 0 to 1. Oversampling raises each class
-               to ratio x (size of the biggest class); undersampling cuts each
-               class down to (size of the smallest class) / ratio. 1.0 = fully
-               balanced.
-
-All of these work on handcrafted feature vectors. They do not augment videos.
+``class_weight`` is ``balanced`` (rarer classes count more) or ``none``. ``resampling`` changes the
+training set (oversampling, undersampling or noise augmentation) and is applied inside each training
+fold only, never to a test fold. ``sampling_ratio`` says how far to balance, from 0 to 1. All methods
+work on feature vectors; they do not augment videos.
 """
 from __future__ import annotations
 
@@ -41,17 +19,37 @@ from sklearn.preprocessing import StandardScaler
 
 from ..registry import build, get_class
 
+# imbalanced-learn is optional, so a missing package is reported when a resampling method is used.
+try:
+    from imblearn import combine, over_sampling, under_sampling
+except ImportError:
+    combine = over_sampling = under_sampling = None
+
+# This is the logger of this module.
 log = logging.getLogger(__name__)
 
+# These are the accepted values of the class-weight option.
 CLASS_WEIGHTS = ("balanced", "none")
+# These are the accepted values of the resampling option.
 RESAMPLING = ("none", "random_over", "smote", "borderline_smote", "adasyn",
               "smote_tomek", "smote_enn", "random_under", "gaussian_noise", "mixup")
+# These are the resampling methods that add synthetic or repeated minority samples.
 OVERSAMPLERS = {"random_over", "smote", "borderline_smote", "adasyn",
                 "smote_tomek", "smote_enn", "gaussian_noise", "mixup"}
 
 
 @dataclass
 class ImbalanceConfig:
+    """How class imbalance is handled (the ``imbalance:`` block of a config).
+
+    Attributes:
+        class_weight: ``"balanced"`` or ``"none"``.
+        resampling: method applied to the training fold only.
+        sampling_ratio: how far to balance, in (0, 1].
+        k_neighbors: neighbours used by the SMOTE-style methods.
+        params: extra options of a method, such as ``noise_std``.
+    """
+
     class_weight: str = "balanced"
     resampling: str = "none"
     sampling_ratio: float = 1.0
@@ -75,13 +73,12 @@ class ImbalanceConfig:
         return cls(**data)
 
     def describe(self) -> str:
+        """One-line human-readable summary printed at the start of a run."""
         text = f"class_weight={self.class_weight}, resampling={self.resampling}"
         if self.resampling != "none":
             text += f" (ratio {self.sampling_ratio}, k={self.k_neighbors})"
         return text
 
-
-# ---- building models ------------------------------------------------------
 
 def build_model(name: str, params: Dict[str, Any], imbalance: ImbalanceConfig, seed: int):
     """Create a registered model with the imbalance settings applied."""
@@ -100,8 +97,6 @@ def build_model(name: str, params: Dict[str, Any], imbalance: ImbalanceConfig, s
         model, resampling=imbalance.resampling, sampling_ratio=imbalance.sampling_ratio,
         k_neighbors=imbalance.k_neighbors, resampling_params=imbalance.params, random_state=seed)
 
-
-# ---- the wrapper ----------------------------------------------------------
 
 class ResamplingClassifier(BaseEstimator, ClassifierMixin):
     """Resample the training data inside fit(), then fit the wrapped model.
@@ -122,6 +117,11 @@ class ResamplingClassifier(BaseEstimator, ClassifierMixin):
         self.random_state = random_state
 
     def fit(self, X, y):
+        """Standardise, resample the training data, and fit a clone of the wrapped estimator.
+
+        Resampling happens here, inside ``fit``, so it only ever touches the training fold and
+        never the validation fold; returns ``self``.
+        """
         X, y = np.asarray(X, dtype=float), np.asarray(y)
         scaler = StandardScaler().fit(X)
         X_new, y_new = resample(scaler.transform(X), y, self.resampling, self.sampling_ratio,
@@ -142,8 +142,6 @@ class ResamplingClassifier(BaseEstimator, ClassifierMixin):
     def feature_importances_(self):
         return getattr(self.estimator_, "feature_importances_", None)
 
-
-# ---- resampling -----------------------------------------------------------
 
 def target_counts(counts: Counter, resampling: str, ratio: float) -> Dict[int, int]:
     """Desired sample count for each class that has to change."""
@@ -184,11 +182,9 @@ def resample(X, y, method: str, ratio: float, k_neighbors: int, params: dict, se
 
 
 def _imblearn_sampler(method: str, strategy: Dict[int, int], k: int, seed: int):
-    try:
-        from imblearn import combine, over_sampling, under_sampling
-    except ImportError as err:
+    if over_sampling is None:
         raise ImportError("This resampling method needs imbalanced-learn: "
-                          "pip install imbalanced-learn") from err
+                          "pip install imbalanced-learn")
     kwargs = dict(sampling_strategy=strategy, random_state=seed)
     if method == "random_over":
         return over_sampling.RandomOverSampler(**kwargs)

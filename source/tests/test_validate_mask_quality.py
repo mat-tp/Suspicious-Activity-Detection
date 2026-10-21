@@ -1,11 +1,7 @@
-import sys
-from pathlib import Path
-
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import validate_mask_quality as v  # noqa: E402
-from activity_detection.detection.adaptive_mog2 import AdaptiveMOG2Detector  # noqa: E402
+import validate_mask_quality as v
+from activity_detection.detection.adaptive_mog2 import AdaptiveMOG2Detector
 
 
 def test_f_measure_edge_cases():
@@ -24,7 +20,6 @@ def test_boxes_to_mask_clips_and_skips_none():
 def test_video_frame_scores_runs_on_synthetic_frames():
     frames, boxes = [], []
     rng = np.random.default_rng(0)
-    patch = rng.integers(150, 255, (40, 30, 3)).astype(np.uint8)    # textured object
     for i in range(50):
         f = np.full((120, 160, 3), 90, np.uint8)
         if i >= 15:                                   # background-only warm-up, then an object enters

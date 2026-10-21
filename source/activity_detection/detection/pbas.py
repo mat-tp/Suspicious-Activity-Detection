@@ -1,17 +1,9 @@
 """Pixel-Based Adaptive Segmenter, PBAS (Hofmann, Tiefenbacher and Rigoll, 2012).
 
-Like ViBe, each pixel keeps a history of past values, but two quantities adapt
-per pixel from how much that pixel's background fluctuates:
-
-  decision threshold R(x)  grows where the background is dynamic, shrinks where
-                           it is static
-  learning rate 1/T(x)     the model updates faster where the background is
-                           static, and slower around foreground
-
-The distance between the current pixel and a stored sample mixes the intensity
-difference with the difference in gradient magnitude (weight alpha / mean
-gradient). This is a NumPy implementation on grey frames with the original publication's
-default parameters.
+Like ViBe, each pixel keeps past values, but the decision threshold R(x) and the learning rate 1/T(x)
+adapt per pixel to how much the background fluctuates there. The distance to a stored sample mixes the
+intensity difference with the gradient-magnitude difference. This is a NumPy version on grey frames with
+the default parameters of the paper.
 """
 from __future__ import annotations
 
@@ -24,6 +16,7 @@ from .vibe import NEIGHBOURS, shifted
 
 
 def gradient_magnitude(gray: np.ndarray) -> np.ndarray:
+    """Sobel gradient magnitude of a greyscale frame (float32)."""
     gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
     return np.sqrt(gx * gx + gy * gy)
@@ -31,6 +24,19 @@ def gradient_magnitude(gray: np.ndarray) -> np.ndarray:
 
 @register("detector", "pbas")
 class PBASDetector(BackgroundModelDetector):
+    """PBAS background model with a per-pixel threshold and learning rate.
+
+    Args:
+        n_samples: stored samples per pixel.
+        min_matches: samples that must match for a pixel to be background.
+        alpha: weight of the gradient term.
+        beta: scale of the threshold update.
+        r_lower, r_scale, r_inc_dec: floor, scale and step of the decision threshold.
+        t_lower, t_upper, t_inc, t_dec: bounds and steps of the update interval.
+        seed: seed of the random sample replacement.
+
+    The mask-cleaning options are those of ``BackgroundModelDetector``.
+    """
 
     def __init__(self, n_samples: int = 20, min_matches: int = 2,
                  alpha: float = 7.0, beta: float = 1.0,
@@ -53,6 +59,7 @@ class PBASDetector(BackgroundModelDetector):
         self.reset()
 
     def reset(self) -> None:
+        """Re-seed the random generator and drop the stored sample history."""
         self.rng = np.random.default_rng(self.seed)
         self.values = None           # (N, H, W) intensities
         self.gradients = None        # (N, H, W) gradient magnitudes
@@ -75,6 +82,7 @@ class PBASDetector(BackgroundModelDetector):
         self.mean_gradient = max(float(grad.mean()), 1.0)
 
     def segment(self, gray: np.ndarray) -> np.ndarray:
+        """Boolean foreground mask of *gray*; the first frame sets up the model and gives an empty mask."""
         if self.values is None:
             self._initialise(gray)
             return np.zeros(gray.shape, dtype=bool)

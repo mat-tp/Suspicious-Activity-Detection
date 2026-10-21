@@ -35,6 +35,8 @@ class FeatureAggregator:
                 f"Supported: {list(_AGG_FNS)}"
             )
         self.aggregation_fns: List[str] = requested
+        # These are the functions that pool the per-track values, in the order of the
+        # requested names.
         self._fns = [_AGG_FNS[name] for name in requested]
 
     def aggregate(self, track_features: List[FeatureDict]) -> Optional[FeatureDict]:

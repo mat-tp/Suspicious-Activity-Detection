@@ -1,3 +1,5 @@
+"""Pairwise interaction descriptors between tracks that coexist in a video."""
+
 from __future__ import annotations
 
 from typing import List, Optional
@@ -10,12 +12,9 @@ from ..registry import register
 
 
 def _shared_frames(track_a, traj_a: np.ndarray, track_b, traj_b: np.ndarray):
-    """Positions of two tracks at the frames where both were observed.
+    """Positions of two tracks at the frames where both were seen.
 
-    Tracks start and end at different frames, so comparing point i of one with point i
-    of the other (the old behaviour) compares different moments. When the tracker
-    recorded frame indices ("frames"), align on them; otherwise fall back to the old
-    index-wise comparison so externally built tracks still work.
+    Without frame indices on the tracks it falls back to comparing point i with point i.
     """
     fa, fb = track_a.get("frames"), track_b.get("frames")
     if fa is None or fb is None or len(fa) != len(traj_a) or len(fb) != len(traj_b):
@@ -31,18 +30,28 @@ def _shared_frames(track_a, traj_a: np.ndarray, track_b, traj_b: np.ndarray):
 
 @register("feature", "interaction")
 class InteractionFeatures(FeatureExtractor):
+    """Distance, relative-speed and proximity statistics of a track against the other tracks.
+
+    A video with a single track gives ``None`` for every track.
+
+    Args:
+        proximity_threshold: two tracks are close when their centroids are nearer than this (px).
+        min_trajectory_len: shorter tracks return ``None``.
+    """
+
     def __init__(self, proximity_threshold=100.0, min_trajectory_len=30):
         self.proximity_threshold = proximity_threshold
         self.min_trajectory_len = min_trajectory_len
 
     def feature_names(self) -> List[str]:
+        """Names of the seven interaction descriptors."""
         return ["mean_pairwise_distance", "min_pairwise_distance", "std_pairwise_distance",
                 "mean_relative_speed_px_s", "max_relative_speed_px_s",
                 "proximity_duration_ratio", "proximity_event_rate_s"]
 
     def extract_track(self, track: Track, **context) -> Optional[FeatureDict]:
         """
-        Interaction features with normalised speed and event rate (v6.0).
+        Interaction features with normalised speed and event rate.
 
           relative speed:  px/frame → px/s  (× fps)
           pairwise_dists:  spatial (px) — unchanged (not temporal)

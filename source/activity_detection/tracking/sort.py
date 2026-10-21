@@ -1,3 +1,5 @@
+"""SORT-style tracker: Kalman prediction plus IoU association (Bewley et al., 2016)."""
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional
@@ -17,18 +19,36 @@ from .utils import bbox_iou
 class SORTTracker(BaseTracker):
     """SORT: Kalman-predicted boxes matched to detections by IoU (Hungarian)."""
 
+    # This is the label that goes into every track dict of this tracker.
     tracker_type = "sort"
 
-    def __init__(self, max_disappeared=30, max_trajectory_len=300, iou_threshold=0.3, min_hits=3):
-        super().__init__(max_disappeared, max_trajectory_len)
+    def __init__(self, max_disappeared=30, max_trajectory_len=300, iou_threshold=0.3, min_hits=3,
+                 keep_finished_tracks=True):
+        """Args:
+            iou_threshold: minimum IoU between a Kalman-predicted box and a detection.
+            min_hits: a track is reported only after this many matched detections
+                (suppresses one-off noise blobs).
+            max_disappeared, max_trajectory_len, keep_finished_tracks: see ``BaseTracker``.
+        """
+        super().__init__(max_disappeared, max_trajectory_len, keep_finished_tracks)
         self.iou_threshold = iou_threshold
         self.min_hits = min_hits
+        # This is the number of frames the tracker has seen.
         self.frame_count = 0
+        # This is the id that the next Kalman filter gets.
         self._kalman_id_counter = 0
         self._predicted: Dict[int, Optional[BBox]] = {}
 
     class KalmanBoxTracker:
+        """Constant-velocity Kalman filter over a box.
+
+        The state is ``[cx, cy, s, r, vx, vy, vs]``: the box centre, its area ``w*h``, its aspect ratio ``w/h``
+        and the velocities of the first three.
+        """
+
         def __init__(self, bbox: BBox, tracker_id: int):
+            # This is the Kalman filter that predicts the box: 7 state values and 4
+            # measured values.
             self.kf = cv2.KalmanFilter(7, 4)
             self.kf.transitionMatrix = np.eye(7, dtype=np.float32)
             for i in range(3):
@@ -43,32 +63,40 @@ class SORTTracker(BaseTracker):
             self.kf.measurementNoiseCov[2:4, 2:4] *= 0.1
             self.kf.errorCovPost = np.eye(7, dtype=np.float32) * 10.0
             x, y, w, h = bbox["x"], bbox["y"], bbox["w"], bbox["h"]
+            cx, cy = x + w / 2.0, y + h / 2.0          # state holds the box CENTRE
             s = w * h
             r = w / float(h) if h > 0 else 1.0
-            self.kf.statePost = np.array([[x], [y], [s], [r], [0], [0], [0]], dtype=np.float32)
+            self.kf.statePost = np.array([[cx], [cy], [s], [r], [0], [0], [0]], dtype=np.float32)
+            # This is the number of frames since the filter was last matched to a
+            # detection.
             self.time_since_update = 0
             self.id = tracker_id
+            # This is the total number of matches, and hit_streak is the number of
+            # matches in a row.
             self.hits = 1
             self.hit_streak = 1
+            # This is the number of frames since the filter was created.
             self.age = 1
 
         def predict(self):
+            """Advance the filter one frame and return the predicted box (top-left x, y, w, h)."""
             predicted_state = self.kf.predict()
-            x, y, s, r = predicted_state[0,0], predicted_state[1,0], predicted_state[2,0], predicted_state[3,0]
-            w = np.sqrt(s * r)
+            cx, cy, s, r = (predicted_state[0, 0], predicted_state[1, 0],
+                            predicted_state[2, 0], predicted_state[3, 0])
+            w = np.sqrt(max(s * r, 0.0))
             h = s / w if w > 0 else 1
-            return make_bbox(int(x - w/2), int(y - h/2), int(w), int(h))
+            return make_bbox(int(round(cx - w / 2)), int(round(cy - h / 2)), int(round(w)), int(round(h)))
 
         def update(self, bbox: BBox):
+            """Correct the filter with a matched detection."""
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
             self.age += 1
             x, y, w, h = bbox["x"], bbox["y"], bbox["w"], bbox["h"]
-            measurement = np.array([[x], [y], [w*h], [w/float(h) if h > 0 else 1.0]], dtype=np.float32)
+            measurement = np.array([[x + w / 2.0], [y + h / 2.0], [w * h],
+                                    [w / float(h) if h > 0 else 1.0]], dtype=np.float32)
             self.kf.correct(measurement)
-
-    # ── BaseTracker hooks ─────────────────────────────────────────────────────
 
     def _begin_frame(self, detections: List[BBox]) -> None:
         """Advance every Kalman filter one step, even on frames with no detections."""
@@ -125,12 +153,16 @@ class SORTTracker(BaseTracker):
                 self._start_track(det)
         self._increment_disappeared([tid for i, tid in enumerate(track_ids) if i not in used_rows])
 
-    # ── Tracker interface (differs from the base: only confirmed tracks) ──────
+    def _is_reportable(self, track: Track) -> bool:
+        """Only tracks confirmed by ``min_hits`` matched detections are reported."""
+        return track["hits"] >= self.min_hits
 
     def get_active_tracks(self) -> List[Track]:
-        return [t for t in self.tracks.values() if t["hits"] >= self.min_hits]
+        """Live tracks that have been confirmed by at least ``min_hits`` detections."""
+        return [t for t in self.tracks.values() if self._is_reportable(t)]
 
     def reset(self) -> None:
+        """Forget all tracks and the Kalman bookkeeping before a new video."""
         super().reset()
         self.frame_count = 0
         self._kalman_id_counter = 0

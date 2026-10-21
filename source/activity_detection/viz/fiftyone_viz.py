@@ -1,3 +1,5 @@
+"""Optional export of detections and tracks to a FiftyOne dataset for interactive inspection."""
+
 from __future__ import annotations
 
 import logging
@@ -7,32 +9,24 @@ from typing import List, Optional, Tuple
 from ..interfaces import BBox, Track
 from ..optional import FIFTYONE_AVAILABLE, fo
 
+# This is the logger of this module.
 log = logging.getLogger(__name__)
 
 
 class FiftyOneVisualizer:
-    """
-    Populates a FiftyOne video dataset with real per-frame detections so the
-    results can be browsed interactively after a run.
+    """Builds one persistent FiftyOne video dataset per run, with the real per-frame boxes.
 
-    Previous version (bug): `create_video_dataset()` created a brand-new,
-    *empty*, non-persistent `fo.Dataset` for every single video and never
-    added the video file, frames, or detections to it — and nothing in the
-    rest of the codebase ever called it. The result was silently no-op
-    visualisation regardless of any flag.
-
-    This version creates ONE persistent dataset per experiment run (the
-    normal FiftyOne pattern — one dataset with many video samples, not one
-    dataset per video), and actually adds each video as a sample with
-    frame-level `fo.Detections` built from the real bounding boxes recorded
-    during `PipelineRunner.process_video(..., collect_frame_detections=True)`.
+    Each video is added as a sample with frame-level detections taken from
+    ``PipelineRunner.process_video(..., collect_frame_detections=True)``.
     """
 
     def __init__(self, output_dir: Path, dataset_name: Optional[str] = None):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        # This is the FiftyOne dataset; it is created when the first video is added.
         self.dataset = None
         self.dataset_name = dataset_name or f"ad_svd_{self.output_dir.parent.name}"
+        # This is the number of videos added so far.
         self._n_samples = 0
 
     def _get_or_create_dataset(self):
@@ -55,12 +49,10 @@ class FiftyOneVisualizer:
         video_name: str = "",
         tracks: Optional[List[Track]] = None,
     ):
-        """
-        Add one video, with per-frame bounding boxes, as a sample in the
-        run's FiftyOne dataset. `frame_detections[i]` is the list of BBox
-        dicts (from `make_bbox`) active on the i-th *processed* frame;
-        `frame_size` is (width, height) of the source video, needed because
-        FiftyOne expects bounding boxes normalised to [0, 1].
+        """Add one video, with its per-frame boxes, to the run's dataset.
+
+        ``frame_detections[i]`` is the list of boxes on the i-th processed frame and ``frame_size`` is the
+        (width, height) of the video, which FiftyOne needs to normalise the boxes to [0, 1].
         """
         if not FIFTYONE_AVAILABLE:
             print("  [warn] FiftyOne not installed — skipping visualisation")
@@ -104,6 +96,8 @@ class FiftyOneVisualizer:
               f"session = fo.launch_app(fo.load_dataset('{self.dataset_name}')); session.wait()\"")
 
     def launch_session(self, dataset=None):
+        """Open the FiftyOne app on *dataset* (default: the visualiser's own); ``None`` if FiftyOne is missing.
+        """
         ds = dataset if dataset is not None else self.dataset
         if FIFTYONE_AVAILABLE and ds is not None:
             return fo.launch_app(ds)

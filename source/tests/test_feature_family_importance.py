@@ -1,9 +1,9 @@
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import feature_family_importance as ffi  # noqa: E402
-from test_feature_appendix import APPENDIX  # noqa: E402,F401
+import feature_family_importance as ffi
+from activity_detection.features.interaction import InteractionFeatures
+from activity_detection.features.track_features import (
+    CircularMotionFeatures, KinematicsFeatures, ShapeFeatures, TrajectoryFeatures)
+from activity_detection.features.wavelet import WaveletFeatures
 
 
 def test_known_features_map_to_expected_families():
@@ -19,11 +19,6 @@ def test_known_features_map_to_expected_families():
 
 
 def test_every_documented_descriptor_has_a_family():
-    import re
-    from activity_detection.features.interaction import InteractionFeatures
-    from activity_detection.features.track_features import (
-        CircularMotionFeatures, KinematicsFeatures, ShapeFeatures, TrajectoryFeatures)
-    from activity_detection.features.wavelet import WaveletFeatures
     for cls in (TrajectoryFeatures, CircularMotionFeatures, KinematicsFeatures, ShapeFeatures,
                 WaveletFeatures, InteractionFeatures):
         for name in cls().feature_names():

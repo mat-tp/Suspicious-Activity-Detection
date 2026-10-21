@@ -1,3 +1,8 @@
+"""PyTorch video-clip classifiers (CNN, CNN+LSTM, 3D CNN) for the neural baseline group.
+
+Imported only when PyTorch is installed (``optional.TORCH_AVAILABLE``). These models read raw video clips instead of the handcrafted features, and are evaluated on a single hold-out split.
+"""
+
 from __future__ import annotations
 
 import copy
@@ -35,7 +40,7 @@ if TORCH_AVAILABLE:
         weights = counts.sum() / (n_classes * counts)
         return torch.tensor(weights, dtype=torch.float32)
 
-    # CPU-bound video decoding") ─────────────────────────────────────────────
+    # This is the number of background workers each data loader uses.
     # Video decoding/resizing in VideoClipDataset.__getitem__ runs on CPU no
     # matter how the GPU is used, so the fix is to overlap that CPU work with
     # GPU compute rather than to make the GPU itself do more. This matters
@@ -100,7 +105,7 @@ if TORCH_AVAILABLE:
             self.sampling = sampling
             self.train = train
             # Light, video-safe augmentation applied only to the training split.
-            # Kept deliberately mild — flip / crop / brightness jitter only —
+            # Kept deliberately mild (flip, crop and brightness jitter only)
             # so per-frame transforms stay consistent and don't introduce
             # spurious motion artefacts within a clip.
             self.augment = augment and train
@@ -172,7 +177,7 @@ if TORCH_AVAILABLE:
                 # original full-resolution frames (e.g. 1920x956, ~5.25MB
                 # each) were being kept in RAM and cached across up to 256
                 # videos, which is what was blowing through available
-                # memory (numpy/cv2/torch OOM errors) — nothing downstream
+                # memory (numpy/cv2/torch OOM errors), nothing downstream
                 # ever needs more than frame_size pixels per frame.
                 frame = cv2.resize(frame, resize_wh, interpolation=cv2.INTER_AREA)
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -191,7 +196,7 @@ if TORCH_AVAILABLE:
         y = np.asarray(y)
         n_classes = len(np.unique(y))
         if len(y) < max(4, n_classes * 2):
-            # Too small to carve out a validation set — train on everything,
+            # Too small to carve out a validation set, train on everything,
             # skip early stopping for this fold.
             return X, [], y, np.array([])
         try:
@@ -226,9 +231,14 @@ if TORCH_AVAILABLE:
             self.patience = patience
             self.use_class_weights = use_class_weights
             self.augment = augment
+            # This is the network; it is built in fit().
             self._model = None
+            # This is the GPU when there is one, and the CPU otherwise.
             self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            # This runs the training steps in mixed precision when the device
+            # supports it.
             self._amp = _AmpHelper(self._device)
+            # This turns the class names into integers.
             self._le = LabelEncoder()
             self._classes = None
 
@@ -274,7 +284,8 @@ if TORCH_AVAILABLE:
             best_state = None
             epochs_no_improve = 0
             for epoch in range(self.epochs):
-                self._features.train(); self._classifier.train()
+                self._features.train()
+                self._classifier.train()
                 total_loss = 0
                 for clips, labels in train_loader:
                     clips = _to_device(clips, self._device)
@@ -310,7 +321,8 @@ if TORCH_AVAILABLE:
             return self
 
         def _eval_loss(self, loader, criterion):
-            self._features.eval(); self._classifier.eval()
+            self._features.eval()
+            self._classifier.eval()
             total, n = 0.0, 0
             with torch.no_grad():
                 for clips, labels in loader:
@@ -323,8 +335,10 @@ if TORCH_AVAILABLE:
             return total / max(n, 1)
 
         def predict(self, X):
-            if self._model is None: raise ValueError("Model not fitted")
-            self._features.eval(); self._classifier.eval()
+            if self._model is None:
+                raise ValueError("Model not fitted")
+            self._features.eval()
+            self._classifier.eval()
             dataset = VideoClipDataset(X, [0]*len(X), clip_len=self.clip_len, frame_size=self.frame_size)
             loader = _make_loader(dataset, self.batch_size, shuffle=False)
             preds = []
@@ -337,8 +351,10 @@ if TORCH_AVAILABLE:
             return self._le.inverse_transform(np.array(preds))
 
         def predict_proba(self, X):
-            if self._model is None: return None
-            self._features.eval(); self._classifier.eval()
+            if self._model is None:
+                return None
+            self._features.eval()
+            self._classifier.eval()
             dataset = VideoClipDataset(X, [0]*len(X), clip_len=self.clip_len, frame_size=self.frame_size)
             loader = _make_loader(dataset, self.batch_size, shuffle=False)
             probas = []
@@ -414,7 +430,9 @@ if TORCH_AVAILABLE:
             best_state = None
             epochs_no_improve = 0
             for epoch in range(self.epochs):
-                self._cnn.train(); self._lstm.train(); self._classifier.train()
+                self._cnn.train()
+                self._lstm.train()
+                self._classifier.train()
                 total_loss = 0
                 for clips, labels in train_loader:
                     clips = _to_device(clips, self._device)
@@ -452,7 +470,9 @@ if TORCH_AVAILABLE:
             return self
 
         def _eval_loss(self, loader, criterion):
-            self._cnn.eval(); self._lstm.eval(); self._classifier.eval()
+            self._cnn.eval()
+            self._lstm.eval()
+            self._classifier.eval()
             total, n = 0.0, 0
             with torch.no_grad():
                 for clips, labels in loader:
@@ -465,8 +485,11 @@ if TORCH_AVAILABLE:
             return total / max(n, 1)
 
         def predict(self, X):
-            if self._classifier is None: raise ValueError("Model not fitted")
-            self._cnn.eval(); self._lstm.eval(); self._classifier.eval()
+            if self._classifier is None:
+                raise ValueError("Model not fitted")
+            self._cnn.eval()
+            self._lstm.eval()
+            self._classifier.eval()
             dataset = VideoClipDataset(X, [0]*len(X), clip_len=self.clip_len, frame_size=self.frame_size)
             loader = _make_loader(dataset, self.batch_size, shuffle=False)
             preds = []
@@ -578,7 +601,8 @@ if TORCH_AVAILABLE:
             return total / max(n, 1)
 
         def predict(self, X):
-            if self._model is None: raise ValueError("Model not fitted")
+            if self._model is None:
+                raise ValueError("Model not fitted")
             self._model.eval()
             dataset = VideoClipDataset(X, [0]*len(X), clip_len=self.clip_len, frame_size=self.frame_size)
             loader = _make_loader(dataset, self.batch_size, shuffle=False)

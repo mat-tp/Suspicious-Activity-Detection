@@ -1,6 +1,10 @@
+"""Per-video pipeline: frames -> preprocessing -> detection -> tracking -> per-track and video-level features.
+"""
+
 from __future__ import annotations
 
 import logging
+import traceback
 from pathlib import Path
 from typing import List, Optional
 
@@ -31,10 +35,28 @@ from ..tracking.analysis import TrackerAnalyzer
 from ..tracking.tfcr import TFCRTracker
 from ..viz.explain import ExplainabilityVisualizer
 
+# This is the logger of this module.
 log = logging.getLogger(__name__)
 
 
 class PipelineRunner:
+    """Runs the pipeline on one video at a time with the components it was built from.
+
+    Args:
+        preprocessor, detector, tracker: the three frame-level stages.
+        optical_flow: optional Lucas-Kanade estimator for a global motion summary.
+        feature_extractors: the per-track descriptor extractors.
+        aggregator: pools the per-track descriptors into one video vector.
+        min_trajectory_len: points a track needs to count as usable.
+        use_dense_trajectories: keep grey frames for the dense-trajectory extractor.
+        enable_multifamily: also compute the image-quality, flow, appearance and temporal families.
+        filter_short_tracks: drop tracks shorter than ``min_trajectory_len`` before feature extraction.
+        global_flow_step: frame gap of the global dense-flow descriptor.
+        appearance_frame_count: number of evenly spaced frames used by the appearance descriptor.
+
+    The tracks come from ``tracker.get_all_tracks()``, so tracks retired mid-video are included.
+    """
+
     def __init__(self, preprocessor: Preprocessor, detector: Detector,
                  tracker: Tracker, optical_flow: Optional[OpticalFlowEstimator] = None,
                  feature_extractors: Optional[List[FeatureExtractor]] = None,
@@ -49,7 +71,9 @@ class PipelineRunner:
         self.detector = detector
         self.tracker = tracker
         self.optical_flow = optical_flow
+        # This is the per-track extractors that are run on every track.
         self.feature_extractors = feature_extractors or []
+        # This pools the per-track values into one vector for the video.
         self.aggregator = aggregator or FeatureAggregator()
         self.min_trajectory_len = min_trajectory_len
         self.use_dense_trajectories = use_dense_trajectories
@@ -68,6 +92,33 @@ class PipelineRunner:
                       frame_sampling: int = 1,
                       visualise_path: Optional[Path] = None,
                       collect_frame_detections: bool = False) -> VideoProcessingResult:
+        """Run the whole pipeline on one video and return everything it learned.
+
+        Each frame is preprocessed, detected and tracked. After the last frame the tracks become per-track
+        descriptors that are pooled into one video vector. Failures do not raise; they come back in
+        ``VideoProcessingResult.failure`` so one bad file cannot stop a batch.
+
+        Args:
+            video_path: the video file.
+            collect_diagnostics: keep per-frame image-quality diagnostics.
+            frame_sampling: process every N-th frame (1 = all).
+            visualise_path: write an annotated video there if given.
+            collect_frame_detections: keep the boxes of every frame (uses a lot of memory).
+        """
+        # The ground-truth detector may be swapped for MOG2 on a video that has no
+        # annotation. That swap is per video: restore the configured detector afterwards,
+        # otherwise every later video of the run would silently use MOG2.
+        configured_detector = self.detector
+        try:
+            return self._process_video(video_path, collect_diagnostics, frame_sampling,
+                                       visualise_path, collect_frame_detections)
+        finally:
+            self.detector = configured_detector
+
+    def _process_video(self, video_path: Path, collect_diagnostics: bool,
+                       frame_sampling: int, visualise_path: Optional[Path],
+                       collect_frame_detections: bool) -> VideoProcessingResult:
+        """Implementation of :meth:`process_video` (see there for the arguments)."""
         video_path = Path(video_path)
         cap = None
         try:
@@ -80,8 +131,7 @@ class PipelineRunner:
                         file_missing=True,
                         error_message=f"cv2.VideoCapture could not open {video_path.name}"))
         except Exception as e:
-            import traceback as _tb
-            tb_str = _tb.format_exc()
+            tb_str = traceback.format_exc()
             log.error("Failed to open video %s: %s\n%s", video_path.name, e, tb_str)
             return VideoProcessingResult(
                 tracks=[], mean_flow_magnitude=0.0, mean_flow_angle_deg=0.0,
@@ -135,7 +185,6 @@ class PipelineRunner:
         detections_per_frame = []
         tracks_per_frame = []
         frame_detections: List[List[BBox]] = []
-
 
         try:
             while True:
@@ -202,7 +251,11 @@ class PipelineRunner:
 
                 prev_gray = pre_result.gray
                 frame_no += 1
-                if self.use_dense_trajectories:
+                # The dense-trajectory extractor AND the multi-family flow/appearance
+                # descriptors read these frames after the loop. (Before, only the dense
+                # extractor requested them, so in multi-family mode the global-flow and
+                # appearance features were computed from an empty list and were all 0.)
+                if self.use_dense_trajectories or self.enable_multifamily:
                     all_gray_frames.append(pre_result.gray)
 
             cap.release()
@@ -217,8 +270,7 @@ class PipelineRunner:
                 except Exception:
                     pass
                 _visualizer = None
-            import traceback as _tb
-            tb_str = _tb.format_exc()
+            tb_str = traceback.format_exc()
             log.error(
                 "Video %s failed during frame processing: %s\n%s",
                 video_path.name, e, tb_str,
@@ -251,7 +303,9 @@ class PipelineRunner:
                 failure=FailureReason(detection_failure=True),
                 frame_detections=frame_detections, frame_size=(orig_w, orig_h))
 
-        tracks = self.tracker.get_active_tracks()
+        # get_all_tracks() includes tracks retired mid-video (e.g. a person who walked
+        # through the scene and left); get_active_tracks() would silently drop them.
+        tracks = self.tracker.get_all_tracks()
         if self.filter_short_tracks:
             tracks = [t for t in tracks if len(t["trajectory"]) >= self.min_trajectory_len]
         mean_mag = float(np.mean(flow_mags)) if flow_mags else 0.0
@@ -272,6 +326,7 @@ class PipelineRunner:
         # tracks are absent in multi-family mode.
         track_feats:   List[FeatureDict] = []
         track_lengths: List[int]         = []
+        extractor_errors = 0
 
         for track in tracks:
             tlen = len(track["trajectory"])
@@ -282,11 +337,19 @@ class PipelineRunner:
                     fv = extractor.extract_track(track, **context)
                     if fv:
                         combined.update(fv)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # A failing extractor must be visible: swallowing it silently turns a
+                    # code bug into "this descriptor family is missing" without a trace.
+                    extractor_errors += 1
+                    if extractor_errors == 1:
+                        log.warning("Feature extractor %s failed on %s (further errors "
+                                    "for this video are only counted): %r",
+                                    type(extractor).__name__, video_path.name, exc)
             if combined:
                 track_feats.append(combined)
 
+        tracking_stats["extractor_errors"] = extractor_errors
+        n_usable_tracks = sum(1 for n in track_lengths if n >= self.min_trajectory_len)
         video_fv: Optional[FeatureDict] = self.aggregator.aggregate(track_feats) if track_feats else None
 
         if self.enable_multifamily:
@@ -317,7 +380,7 @@ class PipelineRunner:
                     tracks=tracks, mean_flow_magnitude=mean_mag,
                     mean_flow_angle_deg=mean_ang, n_frames_processed=frame_no,
                     used_gt=used_gt, preprocessing_diagnostics=diagnostics,
-                    track_lengths=track_lengths,
+                    track_lengths=track_lengths, n_usable_tracks=n_usable_tracks,
                     detection_stats=detection_stats, tracking_stats=tracking_stats,
                     failure=fail, tracker_metrics=tracker_metrics,
                     frame_detections=frame_detections, frame_size=(orig_w, orig_h))
@@ -326,7 +389,7 @@ class PipelineRunner:
                     tracks=tracks, mean_flow_magnitude=mean_mag,
                     mean_flow_angle_deg=mean_ang, n_frames_processed=frame_no,
                     used_gt=used_gt, preprocessing_diagnostics=diagnostics,
-                    track_lengths=track_lengths,
+                    track_lengths=track_lengths, n_usable_tracks=n_usable_tracks,
                     detection_stats=detection_stats, tracking_stats=tracking_stats,
                     failure=FailureReason(feature_failure=True),
                     tracker_metrics=tracker_metrics,
@@ -338,6 +401,7 @@ class PipelineRunner:
 
         return VideoProcessingResult(
             tracks=tracks,
+            n_usable_tracks=n_usable_tracks,
             mean_flow_magnitude=mean_mag,
             mean_flow_angle_deg=mean_ang,
             n_frames_processed=frame_no,

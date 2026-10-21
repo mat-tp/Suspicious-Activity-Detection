@@ -1,18 +1,13 @@
-"""Group labels for leakage-safe cross-validation.
+"""Group labels for cross-validation that does not leak.
 
-AD-SVD videos are not independent samples. The dataset page says distorted
-videos come at three levels per distortion and were exported at three H.264
-qualities, so several files can be re-encodings or re-distortions of the same
-recording. If one copy is in a training fold and another in the test fold, the
-model is scored on something it has effectively seen. Cross-validation should
-keep every copy of a recording in the same fold.
+Several AD-SVD files can be re-encodings or re-distortions of the same recording. If one copy is in a
+training fold and another in the test fold, the model is scored on something it has effectively seen, so
+every copy of a recording must stay in one fold. The grouping is set in the YAML under ``training``:
 
-Two ways to say which videos belong together (set in the YAML under ``training``):
-
-    group_regex:  "^(.+?)_(?:Pri|Exp|Fo|ExFo)"   # first capture group of the file name
+    group_regex:   "^(.+?)_(?:Pri|Exp|Fo|ExFo)"   # first capture group of the file name
     group_map_csv: data/groups.csv                 # columns: video_name,group
 
-If neither is set, no groups are used and plain stratified k-fold runs as before.
+With neither set, no groups are used and plain stratified k-fold runs.
 """
 from __future__ import annotations
 
@@ -51,6 +46,7 @@ def derive_groups(video_names: List[str], regex: Optional[str] = None,
 
 
 def group_summary(groups: np.ndarray) -> str:
+    """One-line description of a grouping: number of groups and min / median / max group size."""
     sizes = np.bincount(groups)
     return (f"{len(sizes)} groups, sizes min/median/max = "
             f"{sizes.min()}/{int(np.median(sizes))}/{sizes.max()}")

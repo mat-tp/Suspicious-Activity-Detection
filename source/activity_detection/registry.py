@@ -1,7 +1,11 @@
+"""Name -> class registry that lets YAML configs select detectors, trackers, features and models by name."""
+
 from __future__ import annotations
 
 from typing import Any, Callable, Dict
 
+# This is where the registered classes are kept: one dict of name -> class for each component
+# kind.
 _REGISTRIES: Dict[str, Dict[str, type]] = {
     "detector": {}, "tracker": {}, "preprocessor": {},
     "feature": {}, "model": {},
@@ -9,6 +13,7 @@ _REGISTRIES: Dict[str, Dict[str, type]] = {
 
 
 def register(category: str, name: str) -> Callable:
+    """Class decorator that registers the class as (*category*, *name*); it raises if the name is taken."""
     if category not in _REGISTRIES:
         raise KeyError(f"Unknown category '{category}'. Valid: {list(_REGISTRIES.keys())}")
     def decorator(cls: type) -> type:
@@ -20,6 +25,8 @@ def register(category: str, name: str) -> Callable:
 
 
 def build(category: str, name: str, **kwargs) -> Any:
+    """Create the class registered as (*category*, *name*) with ``**kwargs``; ``KeyError`` lists the known names.
+    """
     if category not in _REGISTRIES or name not in _REGISTRIES[category]:
         available_list = list(_REGISTRIES.get(category, {}).keys())
         raise KeyError(f"'{name}' not registered under '{category}'. Available: {available_list}")

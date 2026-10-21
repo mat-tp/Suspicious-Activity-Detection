@@ -1,17 +1,9 @@
 """Tests for the 2x2x2 factorial ablation (synthetic runs, no videos needed)."""
-import importlib.util
-import sys
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import pytest
 
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
-sys.path.insert(0, str(SCRIPTS))
-spec = importlib.util.spec_from_file_location("factorial_analysis", SCRIPTS / "factorial_analysis.py")
-fa = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(fa)
+import factorial_analysis as fa
 
 CLASSES = ["a", "b", "c"]
 
