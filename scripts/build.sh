@@ -33,7 +33,7 @@ OTHER_GROUP_CONFIGS="group_b_distortion_aware group_e_gt_upper_bound group_f_tra
 # These are the Python packages as pip-name:import-name. Without a required one the study
 # cannot run; a missing optional one only switches a part off.
 REQUIRED_PACKAGES="numpy:numpy pandas:pandas opencv-python:cv2 PyYAML:yaml scipy:scipy scikit-learn:sklearn openpyxl:openpyxl joblib:joblib imbalanced-learn:imblearn lightgbm:lightgbm xgboost:xgboost PyWavelets:pywt matplotlib:matplotlib pytest:pytest"
-OPTIONAL_PACKAGES="seaborn:seaborn torch:torch fiftyone:fiftyone pybgs:pybgs"
+OPTIONAL_PACKAGES="seaborn:seaborn torch:torch torchvision:torchvision fiftyone:fiftyone pybgs:pybgs"
 
 # This is where the results of the step list are collected.
 STEP_NAMES=()
@@ -76,7 +76,7 @@ Options:
   --env-name NAME   virtual environment folder (default sdr-env)
   --python PATH     interpreter that creates the environment (3.10 or newer)
   --recreate-env    delete and rebuild the environment
-  --skip-optional   do not install torch, fiftyone, pybgs and seaborn
+  --skip-optional   do not install torch, torchvision, fiftyone, pybgs and seaborn
   --fail-fast       stop at the first failed step
   -h, --help        show this text
 
@@ -419,8 +419,8 @@ fi
 if stage_wanted groups; then
     if needs_dataset "other experiment groups"; then
         for cfg_name in $OTHER_GROUP_CONFIGS; do
-            if [[ "$cfg_name" == group_c_* || "$cfg_name" == group_d_* ]] && ! python -c "import torch" >/dev/null 2>&1; then
-                skip_step "train: $cfg_name" "PyTorch is not installed"
+            if [[ "$cfg_name" == group_c_* || "$cfg_name" == group_d_* ]] && ! python -c "import torch, torchvision" >/dev/null 2>&1; then
+                skip_step "train: $cfg_name" "PyTorch or torchvision is not installed"
                 continue
             fi
             train_config "$cfg_name"

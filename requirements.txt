@@ -16,6 +16,7 @@ PyWavelets        # wavelet features
 matplotlib        # plots
 seaborn
 torch             # neural baselines (config group_c / group_d)
+torchvision       # also needed by the neural baselines
 fiftyone          # video visualisation (--visualise)
 pybgs             # SuBSENSE detector only; compiles C++ and may not install on every system
 

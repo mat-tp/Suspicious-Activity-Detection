@@ -104,7 +104,7 @@ def run_group(group: str, args: argparse.Namespace) -> None:
 
     data_path = cfg.get("data_path", "tabular")
     if data_path in ("clip", "hybrid") and not TORCH_AVAILABLE:
-        print(f"  SKIPPING {group}: it needs PyTorch, which is not installed.")
+        print(f"  SKIPPING {group}: it needs PyTorch and torchvision, and one of them is not installed (pip install torch torchvision).")
         return
 
     source = DetectionSource(args.detection_source) if args.detection_source else None

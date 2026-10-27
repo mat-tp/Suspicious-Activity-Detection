@@ -109,15 +109,11 @@ class PipelineBuilder:
         if dtype == "adaptive_mog2":
             ad = cfg.detection.get("adaptive_mog2")
             ad_kwargs = ad.to_dict() if ad is not None else {}
-            return build("detector", "adaptive_mog2", **mog2_base, **morph, **ad_kwargs)
+            return build("detector", "adaptive_mog2", **{**mog2_base, **morph, **ad_kwargs})
 
         if dtype in ("vibe", "pbas", "subsense"):
             own = cfg.detection.get(dtype)
-            return build(
-                "detector", dtype,
-                **morph,
-                **(own.to_dict() if own is not None else {}),
-            )
+            return build("detector", dtype, **{**morph, **(own.to_dict() if own is not None else {})})
 
         if dtype == "ground_truth":
             gt = cfg.detection.ground_truth
@@ -130,7 +126,9 @@ class PipelineBuilder:
 
         if dtype == "dense_flow":
             fc = cfg.detection.dense_flow
-            return build("detector", "dense_flow", **fc.to_dict(), **morph)
+            # This lets the settings of the detector itself win over the shared morphology settings,
+            # so a key that is given in both places does not raise "multiple values for keyword argument".
+            return build("detector", "dense_flow", **{**morph, **fc.to_dict()})
 
         if dtype == "cascaded_fallback":
             cc = cfg.detection.cascaded_fallback
